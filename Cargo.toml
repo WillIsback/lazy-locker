@@ -1,0 +1,33 @@
+[package]
+name = "lazy-locker"
+version = "0.0.1"
+edition = "2024"
+authors = ["William Derue <william.derue@gmail.com>"]
+description = "A secure local secrets manager with TUI interface and SDK support"
+license = "MIT"
+repository = "https://github.com/WillIsback/lazy-locker"
+keywords = ["secrets", "security", "encryption", "tui", "dotenv"]
+categories = ["command-line-utilities", "cryptography"]
+
+[dependencies]
+# --- 1. TUI Interface ---
+ratatui = "0.29.0"         
+crossterm = "0.29.0"       
+arboard = "3.4.0"          
+
+# --- 2. Data & Serialization ---
+serde = { version = "1.0", features = ["derive"] } 
+serde_json = "1.0"         
+
+# --- 3. Cryptography ---
+aes-gcm = "0.10.3"         
+argon2 = "0.5.3"           
+rand = "0.9.2"             
+base64 = "0.22.1"          
+zeroize = "1.8.1"         
+
+# --- 4. System Utilities ---
+anyhow = "1.0"            
+directories = "6.0.0"      
+rpassword = "7.4.0"
+hex = "0.4.3"

@@ -1,0 +1,44 @@
+# Build artifacts
+/target/
+*.rs.bk
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Python SDK build
+sdk/python/dist/
+sdk/python/*.egg-info/
+sdk/python/.eggs/
+sdk/python/__pycache__/
+sdk/python/.pytest_cache/
+sdk/python/.mypy_cache/
+sdk/python/.ruff_cache/
+
+# JavaScript SDK build
+sdk/javascript/dist/
+sdk/javascript/node_modules/
+sdk/javascript/*.tsbuildinfo
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Lazy-locker generated files
+.env.ll
+
+# Test artifacts
+*.log__pycache__/

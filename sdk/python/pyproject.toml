@@ -1,0 +1,36 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lazy-locker"
+version = "0.0.1"
+description = "Python SDK for lazy-locker - A secure local secrets manager"
+readme = "README.md"
+license = "MIT"
+authors = [
+    { name = "William Derue", email = "william.derue@gmail.com" }
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+requires-python = ">=3.8"
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/WillIsback/lazy-locker"
+Documentation = "https://github.com/WillIsback/lazy-locker#readme"
+Repository = "https://github.com/WillIsback/lazy-locker"
+
+[tool.hatch.build.targets.wheel]
+packages = ["lazy_locker"]
