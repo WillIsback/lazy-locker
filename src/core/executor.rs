@@ -276,3 +276,273 @@ pub fn copy_to_clipboard(value: &str) -> Result<()> {
     
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+    use std::fs;
+
+    // ========================
+    // walkdir tests
+    // ========================
+
+    #[test]
+    fn test_walkdir_finds_supported_files() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        
+        // Create test files
+        fs::write(temp_dir.path().join("script.py"), "print('hello')").unwrap();
+        fs::write(temp_dir.path().join("app.js"), "console.log('hi')").unwrap();
+        fs::write(temp_dir.path().join("config.json"), "{}").unwrap();
+        fs::write(temp_dir.path().join("readme.txt"), "ignored").unwrap();
+        
+        let files = walkdir(&temp_dir.path().to_path_buf()).expect("walkdir failed");
+        
+        assert_eq!(files.len(), 3); // .py, .js, .json - not .txt
+    }
+
+    #[test]
+    fn test_walkdir_ignores_hidden_dirs() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        
+        // Create hidden directory with file
+        let hidden_dir = temp_dir.path().join(".hidden");
+        fs::create_dir(&hidden_dir).unwrap();
+        fs::write(hidden_dir.join("secret.py"), "hidden").unwrap();
+        
+        // Create visible file
+        fs::write(temp_dir.path().join("visible.py"), "visible").unwrap();
+        
+        let files = walkdir(&temp_dir.path().to_path_buf()).expect("walkdir failed");
+        
+        assert_eq!(files.len(), 1);
+        assert!(files[0].to_string_lossy().contains("visible.py"));
+    }
+
+    #[test]
+    fn test_walkdir_ignores_node_modules() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        
+        // Create node_modules directory
+        let node_modules = temp_dir.path().join("node_modules");
+        fs::create_dir(&node_modules).unwrap();
+        fs::write(node_modules.join("dep.js"), "dependency").unwrap();
+        
+        // Create source file
+        fs::write(temp_dir.path().join("index.js"), "main").unwrap();
+        
+        let files = walkdir(&temp_dir.path().to_path_buf()).expect("walkdir failed");
+        
+        assert_eq!(files.len(), 1);
+        assert!(files[0].to_string_lossy().contains("index.js"));
+    }
+
+    #[test]
+    fn test_walkdir_recursive() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        
+        // Create nested structure
+        let src = temp_dir.path().join("src");
+        let deep = src.join("deep").join("nested");
+        fs::create_dir_all(&deep).unwrap();
+        
+        fs::write(temp_dir.path().join("root.py"), "root").unwrap();
+        fs::write(src.join("module.py"), "module").unwrap();
+        fs::write(deep.join("helper.py"), "helper").unwrap();
+        
+        let files = walkdir(&temp_dir.path().to_path_buf()).expect("walkdir failed");
+        
+        assert_eq!(files.len(), 3);
+    }
+
+    #[test]
+    fn test_walkdir_empty_directory() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        
+        let files = walkdir(&temp_dir.path().to_path_buf()).expect("walkdir failed");
+        
+        assert!(files.is_empty());
+    }
+
+    #[test]
+    fn test_walkdir_nonexistent_directory() {
+        let nonexistent = PathBuf::from("/nonexistent/path/12345");
+        
+        let files = walkdir(&nonexistent).expect("walkdir should not fail");
+        
+        assert!(files.is_empty());
+    }
+
+    // ========================
+    // find_token_usages tests
+    // ========================
+
+    #[test]
+    fn test_find_token_usages_env_variable_syntax() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        
+        // Create files with various token reference patterns
+        fs::write(
+            temp_dir.path().join("script.sh"),
+            "echo $MY_API_KEY\necho ${MY_API_KEY}"
+        ).unwrap();
+        
+        let usages = find_token_usages("MY_API_KEY", &temp_dir.path().to_path_buf());
+        
+        assert!(!usages.is_empty());
+        assert!(usages.iter().any(|u| u.line_content.contains("$MY_API_KEY")));
+    }
+
+    #[test]
+    fn test_find_token_usages_python_syntax() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        
+        fs::write(
+            temp_dir.path().join("app.py"),
+            r#"import os
+api_key = os.environ["DB_PASSWORD"]
+other = os.getenv("DB_PASSWORD")
+"#
+        ).unwrap();
+        
+        let usages = find_token_usages("DB_PASSWORD", &temp_dir.path().to_path_buf());
+        
+        assert!(usages.len() >= 2);
+    }
+
+    #[test]
+    fn test_find_token_usages_javascript_syntax() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        
+        fs::write(
+            temp_dir.path().join("server.js"),
+            "const key = process.env.SECRET_KEY;"
+        ).unwrap();
+        
+        let usages = find_token_usages("SECRET_KEY", &temp_dir.path().to_path_buf());
+        
+        assert_eq!(usages.len(), 1);
+        assert!(usages[0].line_content.contains("process.env.SECRET_KEY"));
+    }
+
+    #[test]
+    fn test_find_token_usages_no_matches() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        
+        fs::write(
+            temp_dir.path().join("clean.py"),
+            "print('no secrets here')"
+        ).unwrap();
+        
+        let usages = find_token_usages("NONEXISTENT_TOKEN", &temp_dir.path().to_path_buf());
+        
+        assert!(usages.is_empty());
+    }
+
+    #[test]
+    fn test_find_token_usages_includes_line_info() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        
+        fs::write(
+            temp_dir.path().join("config.py"),
+            "# Comment\nTOKEN = $API_KEY\n# End"
+        ).unwrap();
+        
+        let usages = find_token_usages("API_KEY", &temp_dir.path().to_path_buf());
+        
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].line_number, 2);
+        assert!(usages[0].file_path.contains("config.py"));
+    }
+
+    // ========================
+    // generate_env_reference tests
+    // ========================
+
+    #[test]
+    fn test_generate_env_reference_creates_file() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let key = [0x42u8; 32];
+        let mut store = crate::core::store::SecretsStore::new();
+        
+        store.add_secret(
+            "TEST_VAR".to_string(),
+            "value".to_string(),
+            None,
+            &temp_dir.path().to_path_buf(),
+            &key,
+        ).expect("Failed to add secret");
+        
+        let output_path = temp_dir.path().join(".env.encrypted");
+        generate_env_reference(&store, &output_path).expect("Failed to generate reference");
+        
+        assert!(output_path.exists());
+        
+        let content = fs::read_to_string(&output_path).unwrap();
+        assert!(content.contains("TEST_VAR"));
+        assert!(content.contains("LAZY_LOCKER:TEST_VAR"));
+        assert!(content.contains("# File generated by lazy-locker"));
+    }
+
+    #[test]
+    fn test_generate_env_reference_no_plaintext_values() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let key = [0x42u8; 32];
+        let mut store = crate::core::store::SecretsStore::new();
+        
+        let secret_value = "super_secret_password_123";
+        store.add_secret(
+            "PASSWORD".to_string(),
+            secret_value.to_string(),
+            None,
+            &temp_dir.path().to_path_buf(),
+            &key,
+        ).expect("Failed to add secret");
+        
+        let output_path = temp_dir.path().join(".env.ref");
+        generate_env_reference(&store, &output_path).expect("Failed to generate reference");
+        
+        let content = fs::read_to_string(&output_path).unwrap();
+        
+        // The actual secret value should NOT appear in the reference file
+        assert!(!content.contains(secret_value));
+        // Only the placeholder should appear
+        assert!(content.contains("${LAZY_LOCKER:PASSWORD}"));
+    }
+
+    // ========================
+    // generate_python_wrapper tests
+    // ========================
+
+    #[test]
+    fn test_generate_python_wrapper_structure() {
+        let locker_path = PathBuf::from("/home/user/.lazy-locker");
+        let wrapper = generate_python_wrapper("app.py", &locker_path);
+        
+        assert!(wrapper.contains("#!/usr/bin/env python3"));
+        assert!(wrapper.contains("lazy-locker"));
+        assert!(wrapper.contains("app.py"));
+        assert!(wrapper.contains("/home/user/.lazy-locker"));
+        assert!(wrapper.contains("def main()"));
+    }
+
+    // ========================
+    // TokenUsage struct tests
+    // ========================
+
+    #[test]
+    fn test_token_usage_clone() {
+        let usage = TokenUsage {
+            file_path: "src/main.py".to_string(),
+            line_number: 42,
+            line_content: "api_key = os.environ['KEY']".to_string(),
+        };
+
+        let cloned = usage.clone();
+        
+        assert_eq!(cloned.file_path, usage.file_path);
+        assert_eq!(cloned.line_number, usage.line_number);
+        assert_eq!(cloned.line_content, usage.line_content);
+    }
+}

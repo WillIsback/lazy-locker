@@ -182,18 +182,25 @@ fn run_tui() -> Result<()> {
     let mut locker: Option<Locker> = None;
     let work_dir = std::env::current_dir()?;
 
-    // Check locker init
-    match Locker::try_new() {
-        Ok(l) => {
-            locker = Some(l);
-            app.initialized = true;
-            if let Some(ref l) = locker {
-                if let Some(key) = l.get_key() {
-                    app.secrets_store = Some(SecretsStore::load(l.base_dir(), key)?);
-                }
+    // First, check if the agent is already active (no passphrase needed)
+    if agent::is_agent_running() {
+        match AgentClient::get_secrets() {
+            Ok(secrets) => {
+                // Agent is active with secrets - use agent mode
+                app.initialized = true;
+                app.mode = Mode::Normal;
+                app.agent_mode = true;
+                app.agent_secrets = Some(secrets.clone());
+                app.set_status(format!("✅ Agent active ({} secrets)", secrets.len()));
+            }
+            Err(_) => {
+                // Agent running but can't get secrets, fall back to passphrase
+                app.enter_init_mode();
             }
         }
-        Err(_) => app.enter_init_mode(),
+    } else {
+        // No agent running, need passphrase
+        app.enter_init_mode();
     }
 
     // Update usages at startup

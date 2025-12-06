@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use zeroize::Zeroize;
 use crate::core::store::SecretsStore;
 
@@ -50,6 +51,10 @@ pub struct App {
     pub token_usages: Vec<crate::core::executor::TokenUsage>,
     // Temporary status message
     pub status_message: Option<String>,
+    // Agent mode: if true, secrets are decrypted via agent
+    pub agent_mode: bool,
+    // Secrets from agent (name -> value), used when agent_mode is true
+    pub agent_secrets: Option<HashMap<String, String>>,
 }
 
 impl App {
@@ -70,6 +75,8 @@ impl App {
             revealed_secret: None,
             token_usages: Vec::new(),
             status_message: None,
+            agent_mode: false,
+            agent_secrets: None,
         }
     }
 
@@ -113,6 +120,15 @@ impl App {
 
     /// Returns the name of the currently selected secret
     pub fn get_selected_secret_name(&self) -> Option<String> {
+        // Agent mode: use agent_secrets
+        if let Some(ref secrets) = self.agent_secrets {
+            let mut names: Vec<_> = secrets.keys().collect();
+            names.sort();
+            if self.selected_index < names.len() {
+                return Some(names[self.selected_index].clone());
+            }
+        }
+        // Normal mode: use store
         if let Some(ref store) = self.secrets_store {
             let secrets = store.list_secrets();
             if self.selected_index < secrets.len() {
@@ -124,7 +140,30 @@ impl App {
 
     /// Number of secrets in the store
     pub fn secrets_count(&self) -> usize {
+        // Agent mode
+        if let Some(ref secrets) = self.agent_secrets {
+            return secrets.len();
+        }
+        // Normal mode
         self.secrets_store.as_ref().map(|s| s.list_secrets().len()).unwrap_or(0)
+    }
+    
+    /// Returns list of secret names (sorted)
+    pub fn get_secret_names(&self) -> Vec<String> {
+        if let Some(ref secrets) = self.agent_secrets {
+            let mut names: Vec<_> = secrets.keys().cloned().collect();
+            names.sort();
+            return names;
+        }
+        if let Some(ref store) = self.secrets_store {
+            return store.list_secrets().iter().map(|s| s.name.clone()).collect();
+        }
+        Vec::new()
+    }
+    
+    /// Gets decrypted value from agent_secrets cache
+    pub fn get_agent_secret_value(&self, name: &str) -> Option<String> {
+        self.agent_secrets.as_ref().and_then(|s| s.get(name).cloned())
     }
 
     pub fn move_selection_up(&mut self) {
@@ -279,5 +318,338 @@ impl Drop for App {
         if let Some(ref mut store) = self.secrets_store {
             store.secrets.clear();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::KeyCode;
+
+    // ========================
+    // App initialization tests
+    // ========================
+
+    #[test]
+    fn test_app_new_defaults() {
+        let app = App::new();
+
+        assert!(!app.should_quit);
+        assert!(!app.initialized);
+        assert_eq!(app.mode, Mode::Normal);
+        assert_eq!(app.modal, Modal::None);
+        assert!(app.passphrase.is_empty());
+        assert!(app.error_message.is_none());
+        assert!(app.secrets_store.is_none());
+        assert_eq!(app.selected_index, 0);
+        assert!(app.revealed_secret.is_none());
+    }
+
+    #[test]
+    fn test_app_quit() {
+        let mut app = App::new();
+        assert!(!app.should_quit);
+
+        app.quit();
+
+        assert!(app.should_quit);
+    }
+
+    // ========================
+    // Mode transitions tests
+    // ========================
+
+    #[test]
+    fn test_enter_init_mode() {
+        let mut app = App::new();
+        app.error_message = Some("Previous error".to_string());
+
+        app.enter_init_mode();
+
+        assert_eq!(app.mode, Mode::InitPassphrase);
+        assert!(app.error_message.is_none()); // Error should be cleared
+    }
+
+    // ========================
+    // Modal tests
+    // ========================
+
+    #[test]
+    fn test_open_add_modal() {
+        let mut app = App::new();
+        app.new_secret_name = "leftover".to_string();
+        app.new_secret_value = "data".to_string();
+        app.new_secret_expiration = "30".to_string();
+        app.current_field = Field::Value;
+
+        app.open_add_modal();
+
+        assert_eq!(app.modal, Modal::AddSecret);
+        assert!(app.new_secret_name.is_empty()); // Fields should be cleared
+        assert!(app.new_secret_value.is_empty());
+        assert!(app.new_secret_expiration.is_empty());
+        assert_eq!(app.current_field, Field::Name); // Reset to first field
+    }
+
+    #[test]
+    fn test_open_delete_modal() {
+        let mut app = App::new();
+
+        app.open_delete_modal();
+
+        assert_eq!(app.modal, Modal::DeleteConfirm);
+    }
+
+    #[test]
+    fn test_open_help_modal() {
+        let mut app = App::new();
+
+        app.open_help_modal();
+
+        assert_eq!(app.modal, Modal::Help);
+    }
+
+    #[test]
+    fn test_close_modal() {
+        let mut app = App::new();
+        app.modal = Modal::AddSecret;
+        app.revealed_secret = Some("exposed_secret".to_string());
+
+        app.close_modal();
+
+        assert_eq!(app.modal, Modal::None);
+        assert!(app.revealed_secret.is_none()); // Should clear revealed secret
+    }
+
+    // ========================
+    // Error handling tests
+    // ========================
+
+    #[test]
+    fn test_set_and_clear_error() {
+        let mut app = App::new();
+
+        app.set_error("Something went wrong".to_string());
+        assert_eq!(app.error_message, Some("Something went wrong".to_string()));
+
+        app.clear_error();
+        assert!(app.error_message.is_none());
+    }
+
+    // ========================
+    // Status message tests
+    // ========================
+
+    #[test]
+    fn test_set_and_clear_status() {
+        let mut app = App::new();
+
+        app.set_status("Copied to clipboard!".to_string());
+        assert_eq!(app.status_message, Some("Copied to clipboard!".to_string()));
+
+        app.clear_status();
+        assert!(app.status_message.is_none());
+    }
+
+    // ========================
+    // Navigation tests (without store)
+    // ========================
+
+    #[test]
+    fn test_secrets_count_without_store() {
+        let app = App::new();
+        assert_eq!(app.secrets_count(), 0);
+    }
+
+    #[test]
+    fn test_get_selected_secret_name_without_store() {
+        let app = App::new();
+        assert!(app.get_selected_secret_name().is_none());
+    }
+
+    #[test]
+    fn test_move_selection_empty_store() {
+        let mut app = App::new();
+        
+        // Should not panic or change index
+        app.move_selection_up();
+        assert_eq!(app.selected_index, 0);
+
+        app.move_selection_down();
+        assert_eq!(app.selected_index, 0);
+    }
+
+    // ========================
+    // Field navigation tests (via handle_key)
+    // ========================
+
+    #[test]
+    fn test_tab_navigates_fields() {
+        let mut app = App::new();
+        app.modal = Modal::AddSecret;
+        app.current_field = Field::Name;
+
+        app.handle_key(KeyCode::Tab);
+        assert_eq!(app.current_field, Field::Value);
+
+        app.handle_key(KeyCode::Tab);
+        assert_eq!(app.current_field, Field::Expiration);
+
+        app.handle_key(KeyCode::Tab);
+        assert_eq!(app.current_field, Field::Name); // Cycle back
+    }
+
+    #[test]
+    fn test_enter_navigates_fields_except_expiration() {
+        let mut app = App::new();
+        app.modal = Modal::AddSecret;
+        app.current_field = Field::Name;
+
+        app.handle_key(KeyCode::Enter);
+        assert_eq!(app.current_field, Field::Value);
+
+        app.handle_key(KeyCode::Enter);
+        assert_eq!(app.current_field, Field::Expiration);
+
+        // Enter on Expiration does NOT cycle (handled externally for validation)
+        app.handle_key(KeyCode::Enter);
+        assert_eq!(app.current_field, Field::Expiration);
+    }
+
+    // ========================
+    // Key handling tests (AddSecret modal)
+    // ========================
+
+    #[test]
+    fn test_handle_key_add_modal_escape() {
+        let mut app = App::new();
+        app.modal = Modal::AddSecret;
+
+        app.handle_key(KeyCode::Esc);
+
+        assert_eq!(app.modal, Modal::None);
+    }
+
+    #[test]
+    fn test_handle_key_add_modal_tab_navigates() {
+        let mut app = App::new();
+        app.modal = Modal::AddSecret;
+        app.current_field = Field::Name;
+
+        app.handle_key(KeyCode::Tab);
+
+        assert_eq!(app.current_field, Field::Value);
+    }
+
+    #[test]
+    fn test_handle_key_add_modal_char_input() {
+        let mut app = App::new();
+        app.modal = Modal::AddSecret;
+        app.current_field = Field::Name;
+
+        app.handle_key(KeyCode::Char('A'));
+        app.handle_key(KeyCode::Char('P'));
+        app.handle_key(KeyCode::Char('I'));
+
+        assert_eq!(app.new_secret_name, "API");
+    }
+
+    #[test]
+    fn test_handle_key_add_modal_backspace() {
+        let mut app = App::new();
+        app.modal = Modal::AddSecret;
+        app.current_field = Field::Name;
+        app.new_secret_name = "APIKEY".to_string();
+
+        app.handle_key(KeyCode::Backspace);
+
+        assert_eq!(app.new_secret_name, "APIKE");
+    }
+
+    #[test]
+    fn test_handle_key_add_modal_expiration_only_digits() {
+        let mut app = App::new();
+        app.modal = Modal::AddSecret;
+        app.current_field = Field::Expiration;
+
+        app.handle_key(KeyCode::Char('3'));
+        app.handle_key(KeyCode::Char('0'));
+        app.handle_key(KeyCode::Char('a')); // Should be ignored
+
+        assert_eq!(app.new_secret_expiration, "30");
+    }
+
+    // ========================
+    // Key handling tests (DeleteConfirm modal)
+    // ========================
+
+    #[test]
+    fn test_handle_key_delete_modal_escape() {
+        let mut app = App::new();
+        app.modal = Modal::DeleteConfirm;
+
+        app.handle_key(KeyCode::Esc);
+
+        assert_eq!(app.modal, Modal::None);
+    }
+
+    #[test]
+    fn test_handle_key_delete_modal_n_closes() {
+        let mut app = App::new();
+        app.modal = Modal::DeleteConfirm;
+
+        app.handle_key(KeyCode::Char('n'));
+
+        assert_eq!(app.modal, Modal::None);
+    }
+
+    // ========================
+    // Key handling tests (Help modal)
+    // ========================
+
+    #[test]
+    fn test_handle_key_help_modal_specific_keys_close() {
+        // Help modal closes only on Esc, 'h', or Enter
+        let mut app = App::new();
+        app.modal = Modal::Help;
+
+        // Random key should NOT close the modal
+        app.handle_key(KeyCode::Char('x'));
+        assert_eq!(app.modal, Modal::Help);
+
+        // 'h' should close
+        app.handle_key(KeyCode::Char('h'));
+        assert_eq!(app.modal, Modal::None);
+
+        // Reset and test Enter
+        app.modal = Modal::Help;
+        app.handle_key(KeyCode::Enter);
+        assert_eq!(app.modal, Modal::None);
+    }
+
+    #[test]
+    fn test_handle_key_help_modal_escape_closes() {
+        let mut app = App::new();
+        app.modal = Modal::Help;
+
+        app.handle_key(KeyCode::Esc);
+
+        assert_eq!(app.modal, Modal::None);
+    }
+
+    // ========================
+    // Key handling tests (Normal mode - no modal)
+    // ========================
+
+    #[test]
+    fn test_handle_key_normal_mode_no_effect() {
+        let mut app = App::new();
+        app.modal = Modal::None;
+        let initial_field = app.current_field;
+
+        // Keys in normal mode should not affect add modal fields
+        app.handle_key(KeyCode::Tab);
+        
+        assert_eq!(app.current_field, initial_field);
     }
 }

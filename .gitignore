@@ -45,3 +45,4 @@ env/
 
 # Test artifacts
 *.log__pycache__/
+examples/node_modules/

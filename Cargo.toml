@@ -1,6 +1,6 @@
 [package]
 name = "lazy-locker"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2024"
 authors = ["William Derue <william.derue@gmail.com>"]
 description = "A secure local secrets manager with TUI interface and SDK support"
@@ -31,3 +31,9 @@ anyhow = "1.0"
 directories = "6.0.0"      
 rpassword = "7.4.0"
 hex = "0.4.3"
+
+[dev-dependencies]
+# --- Testing ---
+tempfile = "3.20"           # Temporary directories for isolated tests
+assert_fs = "1.1"           # Filesystem assertions
+predicates = "3.1"          # Predicate assertions
