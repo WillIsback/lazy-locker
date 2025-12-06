@@ -209,7 +209,8 @@ fn run_tui() -> Result<()> {
     loop {
         terminal.draw(|frame| ui::render(&app, frame))?;
 
-        if event::poll(std::time::Duration::from_millis(16))? {
+        // Use 100ms poll timeout for better compatibility with various terminals (e.g., Ghostty)
+        if event::poll(std::time::Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
                 // Clear status message on any key press
                 app.clear_status();
