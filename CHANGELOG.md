@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.5] - 2025-12-06
+
+### Added
+- **CLI Headless Mode** - Full CLI support for CI/CD automation
+  - `lazy-locker init --passphrase <PASS>` - Initialize locker non-interactively
+  - `lazy-locker token add/get/list/remove` - Manage tokens via CLI
+  - `lazy-locker import [FILE]` - Import from .env or JSON files
+  - `lazy-locker export` - Export secrets to stdout
+  - Support for `LAZY_LOCKER_PASSPHRASE` environment variable
+  - `--json` and `--env` output formats for scripting
+  - `--stdin` flag for secure value input
+  - `--expires <DAYS>` for token expiration
+
+- **CI/CD Pipeline** - GitHub Actions workflows
+  - Automated linting and formatting checks
+  - Version consistency validation across Cargo.toml and SDKs
+  - Automated publishing to crates.io, PyPI, and npm
+  - GitHub Releases with binary artifacts
+
+- **Development Scripts**
+  - `scripts/setup-dev.sh` - Setup development environment with pre-commit hooks
+  - `scripts/pre-commit.sh` - Quality checks (fmt, clippy, version consistency)
+  - `scripts/bump-version.sh` - Bump version across all project files
+  - `scripts/release.sh` - Interactive release preparation
+
+### Changed
+- Extended `--help` output with all headless commands documentation
+
 ## [0.0.4] - 2025-12-06
 
 ### Added
