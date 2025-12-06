@@ -90,8 +90,20 @@ bun run my_script.ts
 | `e` | Reveal/hide value |
 | `y` | Copy to clipboard |
 | `d` | Delete secret |
+| `:` | Open command modal |
 | `h` | Show help |
 | `q` | Quit |
+
+### Commands (press `:` to open)
+
+| Command | Description |
+|---------|-------------|
+| `:env` | Generate `.env` file (plain text) |
+| `:bash` | Export secrets to `~/.bashrc` |
+| `:zsh` | Export secrets to `~/.zshrc` |
+| `:fish` | Export secrets to fish config |
+| `:json` | Export secrets as JSON |
+| `:clear` | Remove exports from shell profiles |
 
 ## 🔧 CLI Commands
 

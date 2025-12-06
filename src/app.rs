@@ -21,7 +21,19 @@ pub enum Modal {
     DeleteConfirm,
     /// Help with hotkey list
     Help,
+    /// Command input (vim-style :command)
+    Command,
 }
+
+/// Available commands for the command modal
+pub const COMMANDS: &[(&str, &str)] = &[
+    ("env", "Generate .env file with secrets in plain text"),
+    ("bash", "Export secrets to ~/.bashrc"),
+    ("zsh", "Export secrets to ~/.zshrc"),
+    ("fish", "Export secrets to ~/.config/fish/config.fish"),
+    ("json", "Export secrets as JSON file"),
+    ("clear", "Clear all shell exports from profile files"),
+];
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Field {
@@ -55,6 +67,10 @@ pub struct App {
     pub agent_mode: bool,
     // Secrets from agent (name -> value), used when agent_mode is true
     pub agent_secrets: Option<HashMap<String, String>>,
+    // Command input for command modal
+    pub command_input: String,
+    // Selected command suggestion index
+    pub command_suggestion_index: usize,
 }
 
 impl App {
@@ -77,6 +93,8 @@ impl App {
             status_message: None,
             agent_mode: false,
             agent_secrets: None,
+            command_input: String::new(),
+            command_suggestion_index: 0,
         }
     }
 
@@ -103,6 +121,28 @@ impl App {
 
     pub fn open_help_modal(&mut self) {
         self.modal = Modal::Help;
+    }
+
+    pub fn open_command_modal(&mut self) {
+        self.modal = Modal::Command;
+        self.command_input.clear();
+        self.command_suggestion_index = 0;
+    }
+
+    /// Get filtered command suggestions based on current input
+    pub fn get_command_suggestions(&self) -> Vec<(&'static str, &'static str)> {
+        let input = self.command_input.to_lowercase();
+        COMMANDS
+            .iter()
+            .filter(|(cmd, _)| cmd.starts_with(&input))
+            .copied()
+            .collect()
+    }
+
+    /// Get the currently selected command (if any)
+    pub fn get_selected_command(&self) -> Option<&'static str> {
+        let suggestions = self.get_command_suggestions();
+        suggestions.get(self.command_suggestion_index).map(|(cmd, _)| *cmd)
     }
 
     pub fn close_modal(&mut self) {
@@ -242,6 +282,37 @@ impl App {
                 }
                 return;
             }
+            Modal::Command => {
+                match key_code {
+                    crossterm::event::KeyCode::Char(c) => {
+                        self.command_input.push(c);
+                        self.command_suggestion_index = 0; // Reset selection on input change
+                    }
+                    crossterm::event::KeyCode::Backspace => {
+                        self.command_input.pop();
+                        self.command_suggestion_index = 0;
+                    }
+                    crossterm::event::KeyCode::Tab | crossterm::event::KeyCode::Down => {
+                        let suggestions = self.get_command_suggestions();
+                        if !suggestions.is_empty() {
+                            self.command_suggestion_index = 
+                                (self.command_suggestion_index + 1) % suggestions.len();
+                        }
+                    }
+                    crossterm::event::KeyCode::Up => {
+                        let suggestions = self.get_command_suggestions();
+                        if !suggestions.is_empty() {
+                            self.command_suggestion_index = 
+                                self.command_suggestion_index.checked_sub(1)
+                                    .unwrap_or(suggestions.len() - 1);
+                        }
+                    }
+                    crossterm::event::KeyCode::Enter => {} // Handled in main.rs
+                    crossterm::event::KeyCode::Esc => self.close_modal(),
+                    _ => {}
+                }
+                return;
+            }
             Modal::None => {}
         }
 
@@ -270,7 +341,7 @@ impl App {
                 }
                 crossterm::event::KeyCode::Char('h') => self.open_help_modal(),
                 crossterm::event::KeyCode::Char('e') => {} // Handled in main.rs (decrypt)
-                crossterm::event::KeyCode::Char('r') => {} // Handled in main.rs (run command)
+                crossterm::event::KeyCode::Char(':') => self.open_command_modal(),
                 crossterm::event::KeyCode::Char('y') => {} // Handled in main.rs (copy)
                 crossterm::event::KeyCode::Up => self.move_selection_up(),
                 crossterm::event::KeyCode::Down => self.move_selection_down(),

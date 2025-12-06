@@ -174,6 +174,9 @@ pub fn run_agent(key_hex: &str, store_path: &str) -> Result<()> {
     // Create Unix socket
     let listener = UnixListener::bind(&socket_path)?;
     
+    // Set non-blocking to allow periodic shutdown checks
+    listener.set_nonblocking(true)?;
+    
     // Restrictive permissions on socket
     #[cfg(unix)]
     {
@@ -205,10 +208,15 @@ pub fn run_agent(key_hex: &str, store_path: &str) -> Result<()> {
         }
     });
     
-    // Main loop
-    for stream in listener.incoming() {
-        match stream {
-            Ok(stream) => {
+    // Main loop with non-blocking accept
+    loop {
+        // Check if we should stop first
+        if state.lock().unwrap().should_stop {
+            break;
+        }
+        
+        match listener.accept() {
+            Ok((stream, _)) => {
                 let state_clone = Arc::clone(&state);
                 std::thread::spawn(move || {
                     if let Err(e) = handle_client(stream, state_clone) {
@@ -216,14 +224,13 @@ pub fn run_agent(key_hex: &str, store_path: &str) -> Result<()> {
                     }
                 });
             }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                // No connection pending, sleep briefly then check again
+                std::thread::sleep(Duration::from_millis(50));
+            }
             Err(e) => {
                 eprintln!("Connection error: {}", e);
             }
-        }
-        
-        // Check if we should stop
-        if state.lock().unwrap().should_stop {
-            break;
         }
     }
     

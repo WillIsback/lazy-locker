@@ -122,8 +122,22 @@ const apiKey = process.env.MY_API_KEY;
 | `e` | Reveal/hide selected secret |
 | `y` | Copy secret to clipboard |
 | `d` | Delete selected secret |
+| `:` | Open command modal |
 | `h` | Show help |
 | `q` | Quit |
+
+### Export Commands
+
+Press `:` to open the command modal, then type or select:
+
+| Command | Description |
+|---------|-------------|
+| `:env` | Generate `.env` file (plain text) |
+| `:bash` | Export to `~/.bashrc` |
+| `:zsh` | Export to `~/.zshrc` |
+| `:fish` | Export to fish config |
+| `:json` | Export as JSON file |
+| `:clear` | Remove exports from shell profiles |
 
 ## Next Steps
 

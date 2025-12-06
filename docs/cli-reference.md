@@ -105,6 +105,31 @@ Display help information.
 | `y` | Copy decrypted value to clipboard |
 | `d` | Delete selected secret |
 
+### Commands
+
+| Key | Action |
+|-----|--------|
+| `:` | Open command modal |
+
+#### Available Commands
+
+| Command | Description |
+|---------|-------------|
+| `:env` | Generate `.env` file with secrets in plain text |
+| `:bash` | Export secrets to `~/.bashrc` |
+| `:zsh` | Export secrets to `~/.zshrc` |
+| `:fish` | Export secrets to `~/.config/fish/config.fish` |
+| `:json` | Export secrets as JSON file (`secrets.json`) |
+| `:clear` | Remove lazy-locker exports from all shell profiles |
+
+**Note:** Shell exports are wrapped with markers for easy cleanup:
+
+```bash
+# >>> lazy-locker exports >>>
+export MY_SECRET="value"
+# <<< lazy-locker exports <<<
+```
+
 ### General
 
 | Key | Action |
@@ -127,6 +152,15 @@ Display help information.
 |-----|--------|
 | `y` / `Y` | Confirm deletion |
 | `n` / `N` / `Esc` | Cancel |
+
+### Command Modal
+
+| Key | Action |
+|-----|--------|
+| `↑` / `↓` | Navigate suggestions |
+| `Tab` | Next suggestion |
+| `Enter` | Execute selected command |
+| `Esc` | Cancel |
 
 ## Environment Variables
 

@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.4] - 2025-12-06
+
+### Added
+- **Command Modal** - New vim-style command interface (press `:` to open)
+  - `:env` - Generate `.env` file with secrets in plain text
+  - `:bash` - Export secrets to `~/.bashrc`
+  - `:zsh` - Export secrets to `~/.zshrc`
+  - `:fish` - Export secrets to fish config
+  - `:json` - Export secrets as JSON file
+  - `:clear` - Remove lazy-locker exports from all shell profiles
+- **Auto-completion** in command modal with arrow key navigation
+- **Shell export markers** for easy cleanup (`# >>> lazy-locker exports >>>`)
+
+### Fixed
+- **Agent Shutdown** - Agent now properly stops when receiving shutdown signal
+  - Changed from blocking to non-blocking socket listener
+  - Agent checks for shutdown flag every 50ms
+- **TUI/Agent Conflict** - TUI now stops agent on launch to ensure write access
+  - Agent is restarted on TUI exit with fresh secrets store
+  - Fixes issue where added/deleted secrets weren't persisted
+
+### Changed
+- Replaced `r` hotkey with `:` for command modal
+- Improved documentation with new command references
+
 ## [0.0.3] - 2025-12-06
 
 ### Fixed

@@ -1,6 +1,7 @@
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style, Stylize},
+    text::{Line, Span},
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
     Frame,
 };
@@ -55,6 +56,7 @@ pub fn render(app: &App, frame: &mut Frame) {
         Modal::AddSecret => render_add_secret_modal(app, frame),
         Modal::DeleteConfirm => render_delete_confirm_modal(app, frame),
         Modal::Help => render_help_modal(frame),
+        Modal::Command => render_command_modal(app, frame),
         Modal::None => {}
     }
 
@@ -447,8 +449,13 @@ fn render_help_modal(frame: &mut Frame) {
         "  y       Copy decrypted token to clipboard",
         "  d       Delete the selected secret",
         "",
-        "Execution:",
-        "  r       Generate a .env.ll file (secure reference)",
+        "Commands (press : to open):",
+        "  :env    Generate .env file (plain text)",
+        "  :bash   Export to ~/.bashrc",
+        "  :zsh    Export to ~/.zshrc",
+        "  :fish   Export to fish config",
+        "  :json   Export as JSON file",
+        "  :clear  Remove exports from shell profiles",
         "",
         "General:",
         "  h       Show this help",
@@ -470,6 +477,70 @@ fn render_help_modal(frame: &mut Frame) {
     frame.render_widget(paragraph, inner);
 }
 
+fn render_command_modal(app: &App, frame: &mut Frame) {
+    let area = centered_rect(50, 40, frame.area());
+    
+    frame.render_widget(Clear, area);
+    
+    let block = Block::default()
+        .title(" ⌨ Command ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme::CYAN))
+        .style(Style::default().bg(theme::BG_HIGHLIGHT));
+    
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    
+    // Split inner area
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3), // Input field
+            Constraint::Min(1),    // Suggestions
+        ])
+        .split(inner);
+    
+    // Input field with colon prefix
+    let input_block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme::PURPLE));
+    let input_text = format!(":{}", app.command_input);
+    let input = Paragraph::new(input_text)
+        .style(Style::default().fg(theme::FG).add_modifier(Modifier::BOLD))
+        .block(input_block);
+    frame.render_widget(input, chunks[0]);
+    
+    // Suggestions list
+    let suggestions = app.get_command_suggestions();
+    let items: Vec<Line> = suggestions
+        .iter()
+        .enumerate()
+        .map(|(i, (cmd, desc))| {
+            let style = if i == app.command_suggestion_index {
+                Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(theme::FG)
+            };
+            let prefix = if i == app.command_suggestion_index { "► " } else { "  " };
+            Line::from(vec![
+                Span::styled(format!("{}{}", prefix, cmd), style),
+                Span::styled(format!("  - {}", desc), Style::default().fg(theme::COMMENT)),
+            ])
+        })
+        .collect();
+    
+    let suggestions_block = Block::default()
+        .title(" Suggestions (↑/↓ to select, Enter to execute) ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme::FG_DARK));
+    
+    let suggestions_widget = Paragraph::new(items)
+        .block(suggestions_block)
+        .wrap(Wrap { trim: false });
+    
+    frame.render_widget(suggestions_widget, chunks[1]);
+}
+
 fn render_footer(app: &App, area: Rect, frame: &mut Frame) {
     // Display status message if it exists
     let helper_text = if let Some(ref status) = app.status_message {
@@ -480,7 +551,8 @@ fn render_footer(app: &App, area: Rect, frame: &mut Frame) {
             (_, Modal::AddSecret) => "Tab: field | Enter: next/confirm | Esc: cancel",
             (_, Modal::DeleteConfirm) => "Y: confirm | N/Esc: cancel",
             (_, Modal::Help) => "Esc/h: close help",
-            (Mode::Normal, Modal::None) => "a: add | e: reveal | y: copy | d: delete | r: .env | h: help | q: quit",
+            (_, Modal::Command) => "↑/↓: select | Enter: execute | Esc: cancel",
+            (Mode::Normal, Modal::None) => "a: add | e: reveal | y: copy | d: delete | :: cmd | h: help | q: quit",
         }
     };
 

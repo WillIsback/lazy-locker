@@ -116,6 +116,19 @@ fn stop_agent() -> Result<()> {
             let mut response = String::new();
             reader.read_line(&mut response)?;
             
+            // Wait for agent to fully stop (socket removed)
+            for _ in 0..50 {
+                if !socket_path.exists() && !agent::is_agent_running() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            
+            // Force remove socket if still exists
+            if socket_path.exists() {
+                std::fs::remove_file(&socket_path).ok();
+            }
+            
             println!("✅ Agent stopped");
         }
     } else {
@@ -177,31 +190,20 @@ fn run_with_secrets(command_args: &[String]) -> Result<()> {
 }
 
 fn run_tui() -> Result<()> {
+    // Stop agent if running - TUI needs direct access to locker for write operations
+    // Agent will be restarted when exiting TUI
+    let agent_was_running = agent::is_agent_running();
+    if agent_was_running {
+        let _ = stop_agent(); // Ignore errors
+    }
+    
     let mut terminal = tui::init()?;
     let mut app = App::new();
     let mut locker: Option<Locker> = None;
     let work_dir = std::env::current_dir()?;
 
-    // First, check if the agent is already active (no passphrase needed)
-    if agent::is_agent_running() {
-        match AgentClient::get_secrets() {
-            Ok(secrets) => {
-                // Agent is active with secrets - use agent mode
-                app.initialized = true;
-                app.mode = Mode::Normal;
-                app.agent_mode = true;
-                app.agent_secrets = Some(secrets.clone());
-                app.set_status(format!("✅ Agent active ({} secrets)", secrets.len()));
-            }
-            Err(_) => {
-                // Agent running but can't get secrets, fall back to passphrase
-                app.enter_init_mode();
-            }
-        }
-    } else {
-        // No agent running, need passphrase
-        app.enter_init_mode();
-    }
+    // Always require passphrase to enable full functionality (add/delete secrets)
+    app.enter_init_mode();
 
     // Update usages at startup
     app.update_token_usages(&work_dir);
@@ -231,16 +233,9 @@ fn run_tui() -> Result<()> {
                                     if let Some(key) = l.get_key() {
                                         let store = SecretsStore::load(l.base_dir(), key)?;
                                         
-                                        // Start agent in background if not already active
-                                        if !agent::is_agent_running() {
-                                            if let Err(e) = agent::start_daemon(key.to_vec(), store.clone()) {
-                                                app.set_status(format!("⚠️ Agent: {}", e));
-                                            } else {
-                                                app.set_status("✅ Agent started (8h)".to_string());
-                                            }
-                                        } else {
-                                            app.set_status("✅ Agent already active".to_string());
-                                        }
+                                        // Don't start agent during TUI session - will be started on exit
+                                        // This ensures TUI has exclusive write access to the store
+                                        app.set_status("✅ Locker unlocked".to_string());
                                         
                                         app.secrets_store = Some(store);
                                     }
@@ -252,7 +247,7 @@ fn run_tui() -> Result<()> {
                         }
                         true
                     }
-                    // Add secret - only validate when on Expiration field and Enter pressed
+                    // Add secret - validate with Enter on Expiration field
                     (Mode::Normal, Modal::AddSecret, KeyCode::Enter) if app.current_field == Field::Expiration => {
                         if !app.new_secret_name.is_empty() && !app.new_secret_value.is_empty() {
                             let expiration_days = app.get_expiration_days();
@@ -279,9 +274,19 @@ fn run_tui() -> Result<()> {
                                             }
                                             Err(e) => app.set_error(e.to_string()),
                                         }
+                                    } else {
+                                        app.set_error("Encryption key not available".to_string());
                                     }
+                                } else {
+                                    app.set_error("Locker not initialized".to_string());
                                 }
+                            } else {
+                                app.set_error("Secrets store not loaded".to_string());
                             }
+                        } else if app.new_secret_name.is_empty() {
+                            app.set_error("Name is required".to_string());
+                        } else {
+                            app.set_error("Value is required".to_string());
                         }
                         true
                     }
@@ -304,8 +309,14 @@ fn run_tui() -> Result<()> {
                                             }
                                             Err(e) => app.set_error(e.to_string()),
                                         }
+                                    } else {
+                                        app.set_error("Encryption key not available".to_string());
                                     }
+                                } else {
+                                    app.set_error("Locker not initialized".to_string());
                                 }
+                            } else {
+                                app.set_error("Secrets store not loaded".to_string());
                             }
                         }
                         true
@@ -359,16 +370,82 @@ fn run_tui() -> Result<()> {
                         }
                         true
                     }
-                    // Generate .env.ll reference file with 'r'
-                    (Mode::Normal, Modal::None, KeyCode::Char('r')) => {
-                        if let Some(ref store) = app.secrets_store {
-                            let env_path = work_dir.join(".env.ll");
-                            match executor::generate_env_reference(store, &env_path) {
-                                Ok(_) => {
-                                    app.set_status(format!("✓ .env.ll file generated: {}", env_path.display()));
+                    // Command modal - execute command with Enter
+                    (Mode::Normal, Modal::Command, KeyCode::Enter) => {
+                        if let Some(cmd) = app.get_selected_command() {
+                            match cmd {
+                                "env" => {
+                                    if let (Some(store), Some(l)) = (&app.secrets_store, &locker) {
+                                        if let Some(key) = l.get_key() {
+                                            let env_path = work_dir.join(".env");
+                                            match executor::generate_env_file(store, key, &env_path) {
+                                                Ok(_) => {
+                                                    app.set_status(format!("✓ .env generated: {}", env_path.display()));
+                                                }
+                                                Err(e) => app.set_error(format!("Error: {}", e)),
+                                            }
+                                        } else {
+                                            app.set_error("Encryption key not available".to_string());
+                                        }
+                                    } else {
+                                        app.set_error("Locker not initialized".to_string());
+                                    }
                                 }
-                                Err(e) => app.set_error(format!("Error generating .env.ll: {}", e)),
+                                "bash" | "zsh" | "fish" => {
+                                    if let (Some(store), Some(l)) = (&app.secrets_store, &locker) {
+                                        if let Some(key) = l.get_key() {
+                                            match executor::export_to_shell_profile(store, key, cmd) {
+                                                Ok(path) => {
+                                                    app.set_status(format!("✓ Exported to {}", path.display()));
+                                                }
+                                                Err(e) => app.set_error(format!("Error: {}", e)),
+                                            }
+                                        } else {
+                                            app.set_error("Encryption key not available".to_string());
+                                        }
+                                    } else {
+                                        app.set_error("Locker not initialized".to_string());
+                                    }
+                                }
+                                "json" => {
+                                    if let (Some(store), Some(l)) = (&app.secrets_store, &locker) {
+                                        if let Some(key) = l.get_key() {
+                                            let json_path = work_dir.join("secrets.json");
+                                            match executor::export_to_json(store, key, &json_path) {
+                                                Ok(_) => {
+                                                    app.set_status(format!("✓ JSON exported: {}", json_path.display()));
+                                                }
+                                                Err(e) => app.set_error(format!("Error: {}", e)),
+                                            }
+                                        } else {
+                                            app.set_error("Encryption key not available".to_string());
+                                        }
+                                    } else {
+                                        app.set_error("Locker not initialized".to_string());
+                                    }
+                                }
+                                "clear" => {
+                                    match executor::clear_shell_exports() {
+                                        Ok(cleared) if !cleared.is_empty() => {
+                                            let paths: Vec<_> = cleared.iter()
+                                                .map(|p| p.file_name().unwrap_or_default().to_string_lossy().to_string())
+                                                .collect();
+                                            app.set_status(format!("✓ Cleared exports from: {}", paths.join(", ")));
+                                        }
+                                        Ok(_) => {
+                                            app.set_status("ℹ No exports found to clear".to_string());
+                                        }
+                                        Err(e) => app.set_error(format!("Error: {}", e)),
+                                    }
+                                }
+                                _ => {
+                                    app.set_error(format!("Unknown command: {}", cmd));
+                                }
                             }
+                            app.close_modal();
+                        } else if !app.command_input.is_empty() {
+                            app.set_error(format!("Unknown command: {}", app.command_input));
+                            app.close_modal();
                         }
                         true
                     }
@@ -392,6 +469,21 @@ fn run_tui() -> Result<()> {
     }
 
     tui::restore()?;
+    
+    // Start agent on exit if locker was initialized (for SDKs to use)
+    if let Some(ref l) = locker {
+        if let Some(key) = l.get_key() {
+            if let Some(ref store) = app.secrets_store {
+                if !agent::is_agent_running() {
+                    match agent::start_daemon(key.to_vec(), store.clone()) {
+                        Ok(_) => println!("✅ Agent started (8h TTL)"),
+                        Err(e) => println!("⚠️ Could not start agent: {}", e),
+                    }
+                }
+            }
+        }
+    }
+    
     println!("Closing Lazy Locker.");
     Ok(())
 }
