@@ -1,0 +1,156 @@
+# CI Workflow - Runs on every push and PR
+# Performs linting, formatting, and tests
+
+name: CI
+
+on:
+  push:
+    branches: [master, main, develop]
+  pull_request:
+    branches: [master, main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # ============================================================================
+  # LINT & FORMAT
+  # ============================================================================
+  lint:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Run clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+  # ============================================================================
+  # VERSION CONSISTENCY
+  # ============================================================================
+  version-check:
+    name: Version Consistency
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check version consistency
+        run: |
+          CARGO_VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          PYTHON_VERSION=$(grep '^version' sdk/python/pyproject.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          JS_VERSION=$(grep '"version"' sdk/javascript/package.json | head -1 | sed 's/.*"\([0-9.]*\)".*/\1/')
+          
+          echo "Cargo.toml version: $CARGO_VERSION"
+          echo "Python SDK version: $PYTHON_VERSION"
+          echo "JavaScript SDK version: $JS_VERSION"
+          
+          if [ "$CARGO_VERSION" != "$PYTHON_VERSION" ]; then
+            echo "❌ Version mismatch: Cargo.toml ($CARGO_VERSION) != Python SDK ($PYTHON_VERSION)"
+            exit 1
+          fi
+          
+          if [ "$CARGO_VERSION" != "$JS_VERSION" ]; then
+            echo "❌ Version mismatch: Cargo.toml ($CARGO_VERSION) != JavaScript SDK ($JS_VERSION)"
+            exit 1
+          fi
+          
+          echo "✅ All versions match: $CARGO_VERSION"
+
+      - name: Check CHANGELOG has version entry
+        run: |
+          VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          if ! grep -q "\[$VERSION\]" CHANGELOG.md; then
+            echo "⚠️ Warning: Version $VERSION not found in CHANGELOG.md"
+            echo "Consider adding a changelog entry before release."
+          else
+            echo "✅ CHANGELOG entry found for version $VERSION"
+          fi
+
+  # ============================================================================
+  # BUILD & TEST
+  # ============================================================================
+  build:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    needs: [lint, version-check]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Run unit tests
+        run: cargo test --all-features
+
+      - name: Test CLI headless commands
+        run: |
+          # Test init
+          ./target/release/lazy-locker init --passphrase "testpass" --force
+          
+          # Test token add
+          ./target/release/lazy-locker token add TEST_KEY "test_value" --passphrase "testpass"
+          
+          # Test token list
+          ./target/release/lazy-locker token list --passphrase "testpass"
+          
+          # Test token get
+          VALUE=$(./target/release/lazy-locker token get TEST_KEY --passphrase "testpass")
+          if [ "$VALUE" != "test_value" ]; then
+            echo "❌ Token get failed: expected 'test_value', got '$VALUE'"
+            exit 1
+          fi
+          
+          # Test import from stdin
+          echo -e "IMPORT_KEY1=value1\nIMPORT_KEY2=value2" | ./target/release/lazy-locker import --stdin --passphrase "testpass"
+          
+          # Test export
+          ./target/release/lazy-locker export --env --passphrase "testpass"
+          
+          # Test token remove
+          ./target/release/lazy-locker token remove TEST_KEY --passphrase "testpass"
+          
+          echo "✅ All CLI tests passed"
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lazy-locker-linux
+          path: target/release/lazy-locker
+          retention-days: 7

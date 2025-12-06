@@ -1,5 +1,6 @@
 pub mod agent;
+pub mod cli;
 pub mod crypto;
-pub mod store;
 pub mod executor;
 pub mod init;
+pub mod store;

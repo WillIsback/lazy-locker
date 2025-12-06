@@ -7,6 +7,7 @@ mod ui;
 use anyhow::Result;
 use app::{App, Field, Mode, Modal};
 use core::agent::{self, AgentClient};
+use core::cli;
 use core::executor;
 use core::init::Locker;
 use core::store::SecretsStore;
@@ -23,8 +24,16 @@ fn main() -> Result<()> {
             "agent" => return run_agent_mode(&args[2..]),
             "status" => return show_status(),
             "stop" => return stop_agent(),
+            "init" => return run_init_command(&args[2..]),
+            "token" => return run_token_command(&args[2..]),
+            "import" => return run_import_command(&args[2..]),
+            "export" => return run_export_command(&args[2..]),
             "help" | "--help" | "-h" => {
                 print_help();
+                return Ok(());
+            }
+            "--version" | "-v" | "-V" | "version" => {
+                println!("lazy-locker {}", env!("CARGO_PKG_VERSION"));
                 return Ok(());
             }
             _ => {}
@@ -36,18 +45,56 @@ fn main() -> Result<()> {
 }
 
 fn print_help() {
-    println!("lazy-locker - Secure secrets manager");
+    println!("lazy-locker {} - Secure secrets manager", env!("CARGO_PKG_VERSION"));
     println!();
     println!("USAGE:");
-    println!("  lazy-locker              Opens the TUI interface");
-    println!("  lazy-locker run <cmd>    Executes a command with injected secrets");
-    println!("  lazy-locker status       Shows agent status");
-    println!("  lazy-locker stop         Stops the agent");
+    println!("  lazy-locker                    Opens the TUI interface");
+    println!("  lazy-locker run <cmd>          Executes a command with injected secrets");
+    println!("  lazy-locker status             Shows agent status");
+    println!("  lazy-locker stop               Stops the agent");
+    println!("  lazy-locker --version          Shows version");
+    println!();
+    println!("HEADLESS COMMANDS (for CI/CD):");
+    println!("  lazy-locker init [OPTIONS]");
+    println!("      --passphrase <PASS>        Passphrase (or set LAZY_LOCKER_PASSPHRASE)");
+    println!("      --force                    Overwrite existing locker");
+    println!();
+    println!("  lazy-locker token add <NAME> [VALUE] [OPTIONS]");
+    println!("      --stdin                    Read value from stdin");
+    println!("      --expires <DAYS>           Expiration in days");
+    println!("      --passphrase <PASS>        Passphrase");
+    println!();
+    println!("  lazy-locker token get <NAME> [OPTIONS]");
+    println!("      --json                     Output as JSON");
+    println!("      --env                      Output as KEY=VALUE");
+    println!("      --passphrase <PASS>        Passphrase");
+    println!();
+    println!("  lazy-locker token list [OPTIONS]");
+    println!("      --json                     Output as JSON");
+    println!("      --env                      Output all as KEY=VALUE");
+    println!("      --passphrase <PASS>        Passphrase");
+    println!();
+    println!("  lazy-locker token remove <NAME> [OPTIONS]");
+    println!("      --passphrase <PASS>        Passphrase");
+    println!();
+    println!("  lazy-locker import [FILE] [OPTIONS]");
+    println!("      --stdin                    Read from stdin");
+    println!("      --format <env|json>        Input format (default: env)");
+    println!("      --expires <DAYS>           Expiration for all imported tokens");
+    println!("      --passphrase <PASS>        Passphrase");
+    println!();
+    println!("  lazy-locker export [OPTIONS]");
+    println!("      --json                     Output as JSON");
+    println!("      --env                      Output as .env format (default)");
+    println!("      --passphrase <PASS>        Passphrase");
     println!();
     println!("EXAMPLES:");
     println!("  lazy-locker run python script.py");
-    println!("  lazy-locker run uv run app.py");
-    println!("  lazy-locker run bun run index.ts");
+    println!("  lazy-locker init --passphrase \"mypass\"");
+    println!("  lazy-locker token add API_KEY \"sk-123\" --expires 30");
+    println!("  echo \"secret\" | lazy-locker token add DB_PASS --stdin");
+    println!("  lazy-locker import .env --passphrase \"mypass\"");
+    println!("  lazy-locker token list --json");
 }
 
 /// Agent mode (called by the daemon)
@@ -75,6 +122,126 @@ fn run_agent_mode(args: &[String]) -> Result<()> {
     }
     
     agent::run_agent(&key_hex, &store_path)
+}
+
+// ============================================================================
+// HEADLESS CLI COMMANDS
+// ============================================================================
+
+/// Parse CLI arguments helper
+fn parse_cli_args(args: &[String]) -> (Vec<String>, std::collections::HashMap<String, Option<String>>) {
+    let mut positional = Vec::new();
+    let mut flags: std::collections::HashMap<String, Option<String>> = std::collections::HashMap::new();
+    
+    let mut i = 0;
+    while i < args.len() {
+        let arg = &args[i];
+        if arg.starts_with("--") {
+            let flag_name = arg.trim_start_matches("--").to_string();
+            // Check if next arg is a value (not another flag)
+            if i + 1 < args.len() && !args[i + 1].starts_with("--") {
+                flags.insert(flag_name, Some(args[i + 1].clone()));
+                i += 2;
+            } else {
+                flags.insert(flag_name, None);
+                i += 1;
+            }
+        } else {
+            positional.push(arg.clone());
+            i += 1;
+        }
+    }
+    
+    (positional, flags)
+}
+
+/// init command
+fn run_init_command(args: &[String]) -> Result<()> {
+    let (_, flags) = parse_cli_args(args);
+    
+    let passphrase = cli::get_passphrase(flags.get("passphrase").and_then(|v| v.as_deref()))?;
+    let force = flags.contains_key("force");
+    
+    cli::cmd_init(&passphrase, force)
+}
+
+/// token subcommands
+fn run_token_command(args: &[String]) -> Result<()> {
+    if args.is_empty() {
+        anyhow::bail!("Usage: lazy-locker token <add|get|list|remove> [OPTIONS]");
+    }
+    
+    let subcommand = &args[0];
+    let sub_args = &args[1..];
+    let (positional, flags) = parse_cli_args(sub_args);
+    
+    let passphrase = cli::get_passphrase(flags.get("passphrase").and_then(|v| v.as_deref()))?;
+    let format = cli::OutputFormat::from_args(
+        flags.contains_key("json"),
+        flags.contains_key("env"),
+    );
+    
+    match subcommand.as_str() {
+        "add" => {
+            let name = positional.first()
+                .ok_or_else(|| anyhow::anyhow!("Usage: lazy-locker token add <NAME> [VALUE]"))?;
+            let value = positional.get(1).map(|s| s.as_str());
+            let stdin = flags.contains_key("stdin");
+            let expires = flags.get("expires")
+                .and_then(|v| v.as_ref())
+                .and_then(|v| v.parse::<u32>().ok());
+            
+            cli::cmd_token_add(name, value, stdin, expires, &passphrase)
+        }
+        "get" => {
+            let name = positional.first()
+                .ok_or_else(|| anyhow::anyhow!("Usage: lazy-locker token get <NAME>"))?;
+            
+            cli::cmd_token_get(name, format, &passphrase)
+        }
+        "list" => {
+            cli::cmd_token_list(format, &passphrase)
+        }
+        "remove" | "rm" | "delete" => {
+            let name = positional.first()
+                .ok_or_else(|| anyhow::anyhow!("Usage: lazy-locker token remove <NAME>"))?;
+            
+            cli::cmd_token_remove(name, &passphrase)
+        }
+        _ => anyhow::bail!("Unknown token subcommand: {}. Use add, get, list, or remove.", subcommand),
+    }
+}
+
+/// import command
+fn run_import_command(args: &[String]) -> Result<()> {
+    let (positional, flags) = parse_cli_args(args);
+    
+    let passphrase = cli::get_passphrase(flags.get("passphrase").and_then(|v| v.as_deref()))?;
+    let file = positional.first().map(|s| s.as_str());
+    let stdin = flags.contains_key("stdin");
+    let format = flags.get("format")
+        .and_then(|v| v.as_ref())
+        .map(|s| s.as_str())
+        .unwrap_or("env");
+    let expires = flags.get("expires")
+        .and_then(|v| v.as_ref())
+        .and_then(|v| v.parse::<u32>().ok());
+    
+    cli::cmd_import(file, stdin, format, expires, &passphrase)
+}
+
+/// export command
+fn run_export_command(args: &[String]) -> Result<()> {
+    let (_, flags) = parse_cli_args(args);
+    
+    let passphrase = cli::get_passphrase(flags.get("passphrase").and_then(|v| v.as_deref()))?;
+    let format = if flags.contains_key("json") {
+        cli::OutputFormat::Json
+    } else {
+        cli::OutputFormat::Env
+    };
+    
+    cli::cmd_export(format, &passphrase)
 }
 
 /// Shows agent status
