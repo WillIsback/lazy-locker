@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.6] - 2024-12-07
+
+### Changed
+- **Refactor**: Extracted token security analyzer into standalone crate `token-analyzer`
+  - Now available on [crates.io](https://crates.io/crates/token-analyzer)
+  - Separate GitHub repository: [WillIsback/token-analyzer](https://github.com/WillIsback/token-analyzer)
+- **Dependencies**: Replaced local analyzer code with `token-analyzer = "0.0.1"` dependency
+- **Cleaner codebase**: Removed ~1500 lines of code (now maintained in separate crate)
+
+### Removed
+- `src/core/analyzer.rs` - Now in `token-analyzer` crate
+- `src/bin/token_analyzer.rs` - Binary now provided by `token-analyzer` crate
+- `benches/analyzer_benchmark.rs` - Benchmarks moved to `token-analyzer` crate
+- Direct dependencies: `ignore`, `regex`, `rayon`, `parking_lot` (now transitive via `token-analyzer`)
+
+### Added
+- Documentation linking to `token-analyzer` in README
+- Badge for `token-analyzer` crate in security section
+
+
 ## [0.0.5] - 2025-12-06
 
 ### Added
