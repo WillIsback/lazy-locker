@@ -32,8 +32,19 @@ directories = "6.0.0"
 rpassword = "7.4.0"
 hex = "0.4.3"
 
+# --- 5. Token Security Analyzer ---
+token-analyzer = "0.0.1"    # Standalone security analyzer (by same author)
+
+[lib]
+name = "lazy_locker"
+path = "src/lib.rs"
+
 [dev-dependencies]
 # --- Testing ---
 tempfile = "3.20"           # Temporary directories for isolated tests
 assert_fs = "1.1"           # Filesystem assertions
 predicates = "3.1"          # Predicate assertions
+
+[[bin]]
+name = "lazy-locker"
+path = "src/main.rs"

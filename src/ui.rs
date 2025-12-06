@@ -255,59 +255,87 @@ fn render_token_usages(app: &App, area: Rect, frame: &mut Frame) {
         " Usage ".to_string()
     };
 
-    if app.token_usages.is_empty() {
-        let msg = if app.get_selected_secret_name().is_some() {
-            "No usage found\nin the current directory."
-        } else {
-            "Select a secret\nto see its usages."
-        };
-        let paragraph = Paragraph::new(msg)
-            .style(Style::default().fg(theme::COMMENT))
-            .alignment(Alignment::Center)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(theme::TEAL))
-                    .style(Style::default().bg(theme::BG_DARK))
-                    .title(title),
-            );
-        frame.render_widget(paragraph, area);
-    } else {
-        let items: Vec<ListItem> = app
-            .token_usages
-            .iter()
-            .take(20) // Limit to 20 results
-            .map(|usage| {
-                let display = format!(
-                    "{}:{}\n  {}",
-                    usage
-                        .file_path
-                        .rsplit('/')
-                        .next()
-                        .unwrap_or(&usage.file_path),
-                    usage.line_number,
-                    if usage.line_content.len() > 40 {
-                        format!("{}...", &usage.line_content[..40])
-                    } else {
-                        usage.line_content.clone()
-                    }
+    // Check if we have analysis data
+    let report = match &app.token_analysis {
+        Some(r) if !r.files.is_empty() => r,
+        _ => {
+            // No analysis or no results
+            let msg = if app.get_selected_secret_name().is_some() {
+                "No usage found\nin the current directory."
+            } else {
+                "Select a secret\nto see its usages."
+            };
+            let paragraph = Paragraph::new(msg)
+                .style(Style::default().fg(theme::COMMENT))
+                .alignment(Alignment::Center)
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(theme::TEAL))
+                        .style(Style::default().bg(theme::BG_DARK))
+                        .title(title),
                 );
-                ListItem::new(display).style(Style::default().fg(theme::FG))
-            })
-            .collect();
+            frame.render_widget(paragraph, area);
+            return;
+        }
+    };
 
-        let count = app.token_usages.len();
-        let title_with_count = format!("{} ({} files)", title, count);
+    // Build list items from analysis report
+    let items: Vec<ListItem> = report
+        .files_sorted()
+        .iter()
+        .take(20) // Limit to 20 results
+        .map(|file| {
+            let filename = file
+                .path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| file.path.display().to_string());
 
-        let list = List::new(items).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(theme::TEAL))
-                .style(Style::default().bg(theme::BG_DARK))
-                .title(title_with_count),
-        );
-        frame.render_widget(list, area);
-    }
+            // Format: filename (N calls) with optional warning
+            let (display, style) = if file.has_exposure {
+                // Warning: exposed token
+                let text = format!("⚠️  {} ({} calls) - EXPOSED", filename, file.call_count);
+                (text, Style::default().fg(theme::YELLOW))
+            } else {
+                let text = format!("✓  {} ({} calls)", filename, file.call_count);
+                (text, Style::default().fg(theme::GREEN))
+            };
+
+            ListItem::new(display).style(style)
+        })
+        .collect();
+
+    // Build title with summary
+    let title_with_count = if report.exposure_count > 0 {
+        format!(
+            "{} ({} calls in {} files, ⚠️  {} exposed)",
+            title,
+            report.total_calls,
+            report.files.len(),
+            report.exposure_count
+        )
+    } else {
+        format!(
+            "{} ({} calls in {} files ✓)",
+            title,
+            report.total_calls,
+            report.files.len()
+        )
+    };
+
+    let list = List::new(items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(if report.exposure_count > 0 {
+                theme::YELLOW
+            } else {
+                theme::TEAL
+            }))
+            .style(Style::default().bg(theme::BG_DARK))
+            .title(title_with_count),
+    );
+    frame.render_widget(list, area);
 }
 
 /// Calcule un rectangle centré pour les modals

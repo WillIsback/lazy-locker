@@ -1,5 +1,7 @@
 use crate::core::store::SecretsStore;
 use std::collections::HashMap;
+use std::path::Path;
+use token_analyzer::{AnalysisReport, AnalyzerConfig, TokenSecurityAnalyzer};
 use zeroize::Zeroize;
 
 /// Main application mode (single main view with overlaid modals)
@@ -59,8 +61,8 @@ pub struct App {
     pub selected_index: usize,
     // Display decrypted token
     pub revealed_secret: Option<String>,
-    // Files using the selected token
-    pub token_usages: Vec<crate::core::executor::TokenUsage>,
+    // Analysis report for the selected token
+    pub token_analysis: Option<AnalysisReport>,
     // Temporary status message
     pub status_message: Option<String>,
     // Agent mode: if true, secrets are decrypted via agent
@@ -89,7 +91,7 @@ impl App {
             current_field: Field::Name,
             selected_index: 0,
             revealed_secret: None,
-            token_usages: Vec::new(),
+            token_analysis: None,
             status_message: None,
             agent_mode: false,
             agent_secrets: None,
@@ -382,12 +384,20 @@ impl App {
         }
     }
 
-    /// Updates the usages of the selected token
-    pub fn update_token_usages(&mut self, work_dir: &std::path::PathBuf) {
+    /// Updates the token analysis for the selected secret using the new analyzer
+    pub fn update_token_usages(&mut self, work_dir: &Path) {
         if let Some(name) = self.get_selected_secret_name() {
-            self.token_usages = crate::core::executor::find_token_usages(&name, work_dir);
+            let analyzer = TokenSecurityAnalyzer::new(AnalyzerConfig::fast());
+            match analyzer.analyze(&name, work_dir) {
+                Ok(report) => {
+                    self.token_analysis = Some(report);
+                }
+                Err(_) => {
+                    self.token_analysis = None;
+                }
+            }
         } else {
-            self.token_usages.clear();
+            self.token_analysis = None;
         }
     }
 

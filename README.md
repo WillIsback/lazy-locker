@@ -115,6 +115,28 @@ lazy-locker run <cmd>    # Run command with secrets injected
 lazy-locker help         # Show help
 ```
 
+## 🔍 Token Security Analyzer
+
+Lazy-Locker includes a **security analysis feature** to scan your codebase for exposed secrets.
+This functionality is available as a standalone tool: **[token-analyzer](https://github.com/WillIsback/token-analyzer)**.
+
+[![Crates.io](https://img.shields.io/crates/v/token-analyzer.svg)](https://crates.io/crates/token-analyzer)
+
+```bash
+# Install the analyzer
+cargo install token-analyzer
+
+# Analyze your project for exposed API keys
+token-analyzer API_KEY ./my-project --thorough
+
+# The analyzer detects:
+# 🔴 Hardcoded secrets in .env files
+# 🟠 Secrets in docker-compose and config files
+# 🟢 Logged/printed secrets in source code
+```
+
+See the [token-analyzer repository](https://github.com/WillIsback/token-analyzer) for more details.
+
 ## 📦 SDK Installation
 
 **Python:**

@@ -62,6 +62,12 @@ pub struct SecretsStore {
     path: Option<PathBuf>,
 }
 
+impl Default for SecretsStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SecretsStore {
     #[allow(dead_code)]
     pub fn new() -> Self {
