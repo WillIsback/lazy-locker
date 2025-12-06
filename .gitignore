@@ -46,3 +46,7 @@ env/
 # Test artifacts
 *.log__pycache__/
 examples/node_modules/
+
+# Dev-only GitHub LLM files (keep locally, don't track in repo)
+.github/copilot-instructions.md
+.github/agents/
