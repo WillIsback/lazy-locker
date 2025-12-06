@@ -22,7 +22,9 @@ Thumbs.db
 sdk/python/dist/
 sdk/python/*.egg-info/
 sdk/python/.eggs/
-sdk/python/__pycache__/
+sdk/python/**/__pycache__/
+**/__pycache__/
+*.pyc
 sdk/python/.pytest_cache/
 sdk/python/.mypy_cache/
 sdk/python/.ruff_cache/
@@ -31,6 +33,7 @@ sdk/python/.ruff_cache/
 sdk/javascript/dist/
 sdk/javascript/node_modules/
 sdk/javascript/*.tsbuildinfo
+sdk/javascript/package-lock.json
 
 # Virtual environments
 .venv/
