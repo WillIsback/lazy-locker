@@ -75,30 +75,47 @@ fi
 echo -e "${GREEN}✅ CHANGELOG has entry for $VERSION${NC}"
 
 # ============================================================================
-# 4. RUN TESTS
+# 4. FORMAT AND LINT CHECKS
 # ============================================================================
-echo -e "${YELLOW}4. Running tests...${NC}"
+echo -e "${YELLOW}4. Checking code formatting...${NC}"
+if ! cargo fmt --check; then
+    echo -e "${RED}❌ Code is not formatted. Run 'cargo fmt' first.${NC}"
+    exit 1
+fi
+echo -e "${GREEN}✅ Formatting OK${NC}"
+
+echo -e "${YELLOW}5. Running clippy...${NC}"
+if ! cargo clippy --all-targets --all-features -- -D warnings; then
+    echo -e "${RED}❌ Clippy found issues. Please fix them before releasing.${NC}"
+    exit 1
+fi
+echo -e "${GREEN}✅ Clippy OK${NC}"
+
+# ============================================================================
+# 6. RUN TESTS
+# ============================================================================
+echo -e "${YELLOW}6. Running tests...${NC}"
 cargo test --all-features
 echo -e "${GREEN}✅ Tests passed${NC}"
 
 # ============================================================================
-# 5. BUILD RELEASE
+# 7. BUILD RELEASE
 # ============================================================================
-echo -e "${YELLOW}5. Building release...${NC}"
+echo -e "${YELLOW}7. Building release...${NC}"
 cargo build --release
 echo -e "${GREEN}✅ Build successful${NC}"
 
 # ============================================================================
-# 6. COMMIT AND TAG
+# 8. COMMIT AND TAG
 # ============================================================================
-echo -e "${YELLOW}6. Creating commit and tag...${NC}"
+echo -e "${YELLOW}8. Creating commit and tag...${NC}"
 git add -A
 git commit -m "chore: release v$VERSION"
 git tag -a "$TAG" -m "Release $TAG"
 echo -e "${GREEN}✅ Created commit and tag $TAG${NC}"
 
 # ============================================================================
-# 7. PUSH
+# 9. PUSH
 # ============================================================================
 echo ""
 echo -e "${BLUE}Ready to push!${NC}"

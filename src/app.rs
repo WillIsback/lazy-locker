@@ -1,6 +1,6 @@
+use crate::core::store::SecretsStore;
 use std::collections::HashMap;
 use zeroize::Zeroize;
-use crate::core::store::SecretsStore;
 
 /// Main application mode (single main view with overlaid modals)
 #[derive(Debug, PartialEq, Clone)]
@@ -142,7 +142,9 @@ impl App {
     /// Get the currently selected command (if any)
     pub fn get_selected_command(&self) -> Option<&'static str> {
         let suggestions = self.get_command_suggestions();
-        suggestions.get(self.command_suggestion_index).map(|(cmd, _)| *cmd)
+        suggestions
+            .get(self.command_suggestion_index)
+            .map(|(cmd, _)| *cmd)
     }
 
     pub fn close_modal(&mut self) {
@@ -154,6 +156,7 @@ impl App {
         self.error_message = Some(msg);
     }
 
+    #[allow(dead_code)]
     pub fn clear_error(&mut self) {
         self.error_message = None;
     }
@@ -185,10 +188,14 @@ impl App {
             return secrets.len();
         }
         // Normal mode
-        self.secrets_store.as_ref().map(|s| s.list_secrets().len()).unwrap_or(0)
+        self.secrets_store
+            .as_ref()
+            .map(|s| s.list_secrets().len())
+            .unwrap_or(0)
     }
-    
+
     /// Returns list of secret names (sorted)
+    #[allow(dead_code)]
     pub fn get_secret_names(&self) -> Vec<String> {
         if let Some(ref secrets) = self.agent_secrets {
             let mut names: Vec<_> = secrets.keys().cloned().collect();
@@ -196,14 +203,21 @@ impl App {
             return names;
         }
         if let Some(ref store) = self.secrets_store {
-            return store.list_secrets().iter().map(|s| s.name.clone()).collect();
+            return store
+                .list_secrets()
+                .iter()
+                .map(|s| s.name.clone())
+                .collect();
         }
         Vec::new()
     }
-    
+
     /// Gets decrypted value from agent_secrets cache
+    #[allow(dead_code)]
     pub fn get_agent_secret_value(&self, name: &str) -> Option<String> {
-        self.agent_secrets.as_ref().and_then(|s| s.get(name).cloned())
+        self.agent_secrets
+            .as_ref()
+            .and_then(|s| s.get(name).cloned())
     }
 
     pub fn move_selection_up(&mut self) {
@@ -238,13 +252,17 @@ impl App {
                             }
                         }
                     }
-                    crossterm::event::KeyCode::Backspace => {
-                        match self.current_field {
-                            Field::Name => { self.new_secret_name.pop(); }
-                            Field::Value => { self.new_secret_value.pop(); }
-                            Field::Expiration => { self.new_secret_expiration.pop(); }
+                    crossterm::event::KeyCode::Backspace => match self.current_field {
+                        Field::Name => {
+                            self.new_secret_name.pop();
                         }
-                    }
+                        Field::Value => {
+                            self.new_secret_value.pop();
+                        }
+                        Field::Expiration => {
+                            self.new_secret_expiration.pop();
+                        }
+                    },
                     crossterm::event::KeyCode::Tab => {
                         self.current_field = match self.current_field {
                             Field::Name => Field::Value,
@@ -268,14 +286,18 @@ impl App {
             Modal::DeleteConfirm => {
                 match key_code {
                     crossterm::event::KeyCode::Char('y') | crossterm::event::KeyCode::Enter => {} // Handled in main.rs
-                    crossterm::event::KeyCode::Char('n') | crossterm::event::KeyCode::Esc => self.close_modal(),
+                    crossterm::event::KeyCode::Char('n') | crossterm::event::KeyCode::Esc => {
+                        self.close_modal()
+                    }
                     _ => {}
                 }
                 return;
             }
             Modal::Help => {
                 match key_code {
-                    crossterm::event::KeyCode::Esc | crossterm::event::KeyCode::Char('h') | crossterm::event::KeyCode::Enter => {
+                    crossterm::event::KeyCode::Esc
+                    | crossterm::event::KeyCode::Char('h')
+                    | crossterm::event::KeyCode::Enter => {
                         self.close_modal();
                     }
                     _ => {}
@@ -295,16 +317,17 @@ impl App {
                     crossterm::event::KeyCode::Tab | crossterm::event::KeyCode::Down => {
                         let suggestions = self.get_command_suggestions();
                         if !suggestions.is_empty() {
-                            self.command_suggestion_index = 
+                            self.command_suggestion_index =
                                 (self.command_suggestion_index + 1) % suggestions.len();
                         }
                     }
                     crossterm::event::KeyCode::Up => {
                         let suggestions = self.get_command_suggestions();
                         if !suggestions.is_empty() {
-                            self.command_suggestion_index = 
-                                self.command_suggestion_index.checked_sub(1)
-                                    .unwrap_or(suggestions.len() - 1);
+                            self.command_suggestion_index = self
+                                .command_suggestion_index
+                                .checked_sub(1)
+                                .unwrap_or(suggestions.len() - 1);
                         }
                     }
                     crossterm::event::KeyCode::Enter => {} // Handled in main.rs
@@ -541,7 +564,7 @@ mod tests {
     #[test]
     fn test_move_selection_empty_store() {
         let mut app = App::new();
-        
+
         // Should not panic or change index
         app.move_selection_up();
         assert_eq!(app.selected_index, 0);
@@ -720,7 +743,7 @@ mod tests {
 
         // Keys in normal mode should not affect add modal fields
         app.handle_key(KeyCode::Tab);
-        
+
         assert_eq!(app.current_field, initial_field);
     }
 }

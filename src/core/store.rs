@@ -1,10 +1,10 @@
+use crate::core::crypto::{decrypt, encrypt};
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use anyhow::Result;
-use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
-use crate::core::crypto::{encrypt, decrypt};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Secret {
@@ -46,9 +46,9 @@ impl Secret {
     pub fn expiration_display(&self) -> String {
         match self.days_until_expiration() {
             Some(days) if days < 0 => "⚠️ EXPIRED".to_string(),
-            Some(days) if days == 0 => "⚠️ Expires today".to_string(),
-            Some(days) if days == 1 => "⚠️ Expires tomorrow".to_string(),
-            Some(days) if days <= 7 => format!("⚠️ {} days", days),
+            Some(0) => "⚠️ Expires today".to_string(),
+            Some(1) => "⚠️ Expires tomorrow".to_string(),
+            Some(days @ 2..=7) => format!("⚠️ {} days", days),
             Some(days) => format!("{} days", days),
             None => "∞ Permanent".to_string(),
         }
@@ -63,6 +63,7 @@ pub struct SecretsStore {
 }
 
 impl SecretsStore {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
             secrets: HashMap::new(),
@@ -70,7 +71,7 @@ impl SecretsStore {
         }
     }
 
-    pub fn load(locker_dir: &PathBuf, key: &[u8]) -> Result<Self> {
+    pub fn load(locker_dir: &std::path::Path, key: &[u8]) -> Result<Self> {
         let file_path = locker_dir.join("secrets.json");
         if file_path.exists() {
             let data = fs::read(&file_path)?;
@@ -107,7 +108,7 @@ impl SecretsStore {
         self.path.as_ref().expect("Store path not set")
     }
 
-    pub fn save(&self, locker_dir: &PathBuf, key: &[u8]) -> Result<()> {
+    pub fn save(&self, locker_dir: &std::path::Path, key: &[u8]) -> Result<()> {
         let json = serde_json::to_vec(self)?;
         let encrypted = encrypt(&json, key)?;
         fs::write(locker_dir.join("secrets.json"), encrypted)?;
@@ -119,11 +120,11 @@ impl SecretsStore {
         name: String,
         value: String,
         expiration_days: Option<u32>,
-        locker_dir: &PathBuf,
+        locker_dir: &std::path::Path,
         key: &[u8],
     ) -> Result<()> {
         let encrypted_value = encrypt(value.as_bytes(), key)?;
-        
+
         let expires_at = expiration_days.map(|days| {
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -131,7 +132,7 @@ impl SecretsStore {
                 .unwrap_or(0);
             now + (days as i64 * 86400)
         });
-        
+
         let secret = Secret {
             name: name.clone(),
             encrypted_value,
@@ -152,7 +153,12 @@ impl SecretsStore {
         secrets
     }
 
-    pub fn delete_secret(&mut self, name: &str, locker_dir: &PathBuf, key: &[u8]) -> Result<()> {
+    pub fn delete_secret(
+        &mut self,
+        name: &str,
+        locker_dir: &std::path::Path,
+        key: &[u8],
+    ) -> Result<()> {
         self.secrets.remove(name);
         self.save(locker_dir, key)?;
         Ok(())
@@ -258,7 +264,8 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs() as i64
-            + 86400 + 3600; // Tomorrow + 1 hour margin
+            + 86400
+            + 3600; // Tomorrow + 1 hour margin
 
         let secret = Secret {
             name: "EXPIRING_TOMORROW".to_string(),
@@ -312,7 +319,7 @@ mod tests {
                 "MY_API_KEY".to_string(),
                 "secret_value_123".to_string(),
                 None,
-                &temp_dir.path().to_path_buf(),
+                temp_dir.path(),
                 &key,
             )
             .expect("Failed to add secret");
@@ -333,7 +340,7 @@ mod tests {
                 "DB_PASSWORD".to_string(),
                 "super_secure_password".to_string(),
                 None,
-                &temp_dir.path().to_path_buf(),
+                temp_dir.path(),
                 &key,
             )
             .expect("Failed to add secret");
@@ -364,7 +371,7 @@ mod tests {
                 "TO_DELETE".to_string(),
                 "value".to_string(),
                 None,
-                &temp_dir.path().to_path_buf(),
+                temp_dir.path(),
                 &key,
             )
             .expect("Failed to add secret");
@@ -372,7 +379,7 @@ mod tests {
         assert!(store.get_secret("TO_DELETE").is_some());
 
         store
-            .delete_secret("TO_DELETE", &temp_dir.path().to_path_buf(), &key)
+            .delete_secret("TO_DELETE", temp_dir.path(), &key)
             .expect("Failed to delete");
 
         assert!(store.get_secret("TO_DELETE").is_none());
@@ -391,7 +398,7 @@ mod tests {
                     name.to_string(),
                     "value".to_string(),
                     None,
-                    &temp_dir.path().to_path_buf(),
+                    temp_dir.path(),
                     &key,
                 )
                 .expect("Failed to add secret");
@@ -413,7 +420,7 @@ mod tests {
                 "KEY1".to_string(),
                 "value1".to_string(),
                 None,
-                &temp_dir.path().to_path_buf(),
+                temp_dir.path(),
                 &key,
             )
             .expect("Failed to add secret");
@@ -422,7 +429,7 @@ mod tests {
                 "KEY2".to_string(),
                 "value2".to_string(),
                 None,
-                &temp_dir.path().to_path_buf(),
+                temp_dir.path(),
                 &key,
             )
             .expect("Failed to add secret");
@@ -444,14 +451,13 @@ mod tests {
                 "PERSISTENT".to_string(),
                 "saved_value".to_string(),
                 Some(30), // 30 days expiration
-                &temp_dir.path().to_path_buf(),
+                temp_dir.path(),
                 &key,
             )
             .expect("Failed to add secret");
 
         // Load from disk
-        let loaded = SecretsStore::load(&temp_dir.path().to_path_buf(), &key)
-            .expect("Failed to load store");
+        let loaded = SecretsStore::load(temp_dir.path(), &key).expect("Failed to load store");
 
         assert_eq!(loaded.secrets.len(), 1);
         let decrypted = loaded
@@ -469,8 +475,7 @@ mod tests {
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let key = test_key();
 
-        let store = SecretsStore::load(&temp_dir.path().to_path_buf(), &key)
-            .expect("Failed to load store");
+        let store = SecretsStore::load(temp_dir.path(), &key).expect("Failed to load store");
 
         assert!(store.secrets.is_empty());
     }
@@ -486,17 +491,17 @@ mod tests {
                 "EXPIRING".to_string(),
                 "temp_value".to_string(),
                 Some(7), // 7 days
-                &temp_dir.path().to_path_buf(),
+                temp_dir.path(),
                 &key,
             )
             .expect("Failed to add secret");
 
         let secret = store.get_secret("EXPIRING").unwrap();
         assert!(secret.expires_at.is_some());
-        
+
         // Should expire in approximately 7 days
         let days = secret.days_until_expiration().unwrap();
-        assert!(days >= 6 && days <= 7);
+        assert!((6..=7).contains(&days));
     }
 
     #[test]
@@ -510,7 +515,7 @@ mod tests {
                 "日本語_KEY".to_string(),
                 "Valeur avec émojis 🔐🔑".to_string(),
                 None,
-                &temp_dir.path().to_path_buf(),
+                temp_dir.path(),
                 &key,
             )
             .expect("Failed to add unicode secret");

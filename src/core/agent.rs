@@ -31,19 +31,19 @@ pub enum AgentRequest {
     /// Ping to check if agent is alive
     #[serde(rename = "ping")]
     Ping,
-    
+
     /// Request all decrypted secrets
     #[serde(rename = "get_secrets")]
     GetSecrets,
-    
+
     /// Request a specific secret
     #[serde(rename = "get_secret")]
     GetSecret { name: String },
-    
+
     /// List available secret names
     #[serde(rename = "list")]
     List,
-    
+
     /// Stop the agent
     #[serde(rename = "shutdown")]
     Shutdown,
@@ -55,7 +55,7 @@ pub enum AgentRequest {
 pub enum AgentResponse {
     #[serde(rename = "ok")]
     Ok { data: serde_json::Value },
-    
+
     #[serde(rename = "error")]
     Error { message: String },
 }
@@ -85,12 +85,12 @@ impl Drop for AgentState {
 pub fn get_socket_path() -> Result<PathBuf> {
     let base_dirs = directories::BaseDirs::new()
         .ok_or_else(|| anyhow::anyhow!("Unable to determine user directories"))?;
-    
+
     #[cfg(unix)]
     let sub_dir = ".lazy-locker";
     #[cfg(not(unix))]
     let sub_dir = "lazy-locker";
-    
+
     let locker_dir = base_dirs.config_dir().join(sub_dir);
     Ok(locker_dir.join("agent.sock"))
 }
@@ -103,20 +103,26 @@ pub fn get_pid_path() -> Result<PathBuf> {
 
 /// Checks if the agent is running
 pub fn is_agent_running() -> bool {
-    if let Ok(socket_path) = get_socket_path() {
-        if socket_path.exists() {
-            // Try connecting to verify
-            if let Ok(mut stream) = UnixStream::connect(&socket_path) {
-                let request = r#"{"action":"ping"}"#;
-                if stream.write_all(format!("{}\n", request).as_bytes()).is_ok() {
-                    stream.flush().ok();
-                    let mut reader = BufReader::new(&stream);
-                    let mut response = String::new();
-                    if reader.read_line(&mut response).is_ok() {
-                        return response.contains("\"status\":\"ok\"");
-                    }
-                }
-            }
+    let Ok(socket_path) = get_socket_path() else {
+        return false;
+    };
+    if !socket_path.exists() {
+        return false;
+    }
+    // Try connecting to verify
+    let Ok(mut stream) = UnixStream::connect(&socket_path) else {
+        return false;
+    };
+    let request = r#"{"action":"ping"}"#;
+    if stream
+        .write_all(format!("{}\n", request).as_bytes())
+        .is_ok()
+    {
+        stream.flush().ok();
+        let mut reader = BufReader::new(&stream);
+        let mut response = String::new();
+        if reader.read_line(&mut response).is_ok() {
+            return response.contains("\"status\":\"ok\"");
         }
     }
     false
@@ -125,19 +131,19 @@ pub fn is_agent_running() -> bool {
 /// Starts the agent in daemon mode (fork)
 pub fn start_daemon(key: Vec<u8>, store: SecretsStore) -> Result<()> {
     use std::process::Command;
-    
+
     let socket_path = get_socket_path()?;
     let pid_path = get_pid_path()?;
-    
+
     // Remove old socket if it exists
     if socket_path.exists() {
         std::fs::remove_file(&socket_path)?;
     }
-    
+
     // Serialize key and store path for subprocess
     let key_hex = hex::encode(&key);
     let store_path = store.get_path().to_string_lossy().to_string();
-    
+
     // Launch daemon in background
     let child = Command::new(std::env::current_exe()?)
         .arg("agent")
@@ -149,10 +155,10 @@ pub fn start_daemon(key: Vec<u8>, store: SecretsStore) -> Result<()> {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()?;
-    
+
     // Save PID
     std::fs::write(&pid_path, child.id().to_string())?;
-    
+
     // Wait for socket to be ready
     for _ in 0..50 {
         if socket_path.exists() {
@@ -160,7 +166,7 @@ pub fn start_daemon(key: Vec<u8>, store: SecretsStore) -> Result<()> {
         }
         std::thread::sleep(Duration::from_millis(100));
     }
-    
+
     Err(anyhow::anyhow!("Agent did not start in time"))
 }
 
@@ -168,22 +174,22 @@ pub fn start_daemon(key: Vec<u8>, store: SecretsStore) -> Result<()> {
 pub fn run_agent(key_hex: &str, store_path: &str) -> Result<()> {
     let key = hex::decode(key_hex)?;
     let store = SecretsStore::load_from_path(&PathBuf::from(store_path), &key)?;
-    
+
     let socket_path = get_socket_path()?;
-    
+
     // Create Unix socket
     let listener = UnixListener::bind(&socket_path)?;
-    
+
     // Set non-blocking to allow periodic shutdown checks
     listener.set_nonblocking(true)?;
-    
+
     // Restrictive permissions on socket
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&socket_path, std::fs::Permissions::from_mode(0o600))?;
     }
-    
+
     let state = Arc::new(Mutex::new(AgentState {
         key,
         store,
@@ -191,7 +197,7 @@ pub fn run_agent(key_hex: &str, store_path: &str) -> Result<()> {
         ttl_hours: DEFAULT_TTL_HOURS,
         should_stop: false,
     }));
-    
+
     // TTL check thread
     let state_ttl = Arc::clone(&state);
     std::thread::spawn(move || {
@@ -207,14 +213,14 @@ pub fn run_agent(key_hex: &str, store_path: &str) -> Result<()> {
             }
         }
     });
-    
+
     // Main loop with non-blocking accept
     loop {
         // Check if we should stop first
         if state.lock().unwrap().should_stop {
             break;
         }
-        
+
         match listener.accept() {
             Ok((stream, _)) => {
                 let state_clone = Arc::clone(&state);
@@ -233,13 +239,13 @@ pub fn run_agent(key_hex: &str, store_path: &str) -> Result<()> {
             }
         }
     }
-    
+
     // Cleanup
     std::fs::remove_file(&socket_path).ok();
     if let Ok(pid_path) = get_pid_path() {
         std::fs::remove_file(&pid_path).ok();
     }
-    
+
     Ok(())
 }
 
@@ -247,28 +253,28 @@ pub fn run_agent(key_hex: &str, store_path: &str) -> Result<()> {
 fn handle_client(stream: UnixStream, state: Arc<Mutex<AgentState>>) -> Result<()> {
     let mut reader = BufReader::new(&stream);
     let mut writer = &stream;
-    
+
     let mut line = String::new();
     reader.read_line(&mut line)?;
-    
+
     let response = match serde_json::from_str::<AgentRequest>(&line) {
         Ok(request) => process_request(request, &state),
         Err(e) => AgentResponse::Error {
             message: format!("Invalid request: {}", e),
         },
     };
-    
+
     let response_json = serde_json::to_string(&response)?;
     writeln!(writer, "{}", response_json)?;
     writer.flush()?;
-    
+
     Ok(())
 }
 
 /// Processes a request
 fn process_request(request: AgentRequest, state: &Arc<Mutex<AgentState>>) -> AgentResponse {
     let mut s = state.lock().unwrap();
-    
+
     // Check TTL
     if s.started_at.elapsed() > Duration::from_secs(s.ttl_hours * 3600) {
         s.should_stop = true;
@@ -276,7 +282,7 @@ fn process_request(request: AgentRequest, state: &Arc<Mutex<AgentState>>) -> Age
             message: "Session expired".to_string(),
         };
     }
-    
+
     match request {
         AgentRequest::Ping => AgentResponse::Ok {
             data: serde_json::json!({
@@ -284,39 +290,37 @@ fn process_request(request: AgentRequest, state: &Arc<Mutex<AgentState>>) -> Age
                 "ttl_remaining_secs": (s.ttl_hours * 3600).saturating_sub(s.started_at.elapsed().as_secs()),
             }),
         },
-        
-        AgentRequest::GetSecrets => {
-            match s.store.decrypt_all(&s.key) {
-                Ok(secrets) => AgentResponse::Ok {
-                    data: serde_json::to_value(secrets).unwrap_or_default(),
-                },
-                Err(e) => AgentResponse::Error {
-                    message: format!("Decryption error: {}", e),
-                },
-            }
-        }
-        
-        AgentRequest::GetSecret { name } => {
-            match s.store.decrypt_all(&s.key) {
-                Ok(secrets) => {
-                    if let Some(value) = secrets.get(&name) {
-                        AgentResponse::Ok {
-                            data: serde_json::json!({ "value": value }),
-                        }
-                    } else {
-                        AgentResponse::Error {
-                            message: format!("Secret '{}' not found", name),
-                        }
+
+        AgentRequest::GetSecrets => match s.store.decrypt_all(&s.key) {
+            Ok(secrets) => AgentResponse::Ok {
+                data: serde_json::to_value(secrets).unwrap_or_default(),
+            },
+            Err(e) => AgentResponse::Error {
+                message: format!("Decryption error: {}", e),
+            },
+        },
+
+        AgentRequest::GetSecret { name } => match s.store.decrypt_all(&s.key) {
+            Ok(secrets) => {
+                if let Some(value) = secrets.get(&name) {
+                    AgentResponse::Ok {
+                        data: serde_json::json!({ "value": value }),
+                    }
+                } else {
+                    AgentResponse::Error {
+                        message: format!("Secret '{}' not found", name),
                     }
                 }
-                Err(e) => AgentResponse::Error {
-                    message: format!("Decryption error: {}", e),
-                },
             }
-        }
-        
+            Err(e) => AgentResponse::Error {
+                message: format!("Decryption error: {}", e),
+            },
+        },
+
         AgentRequest::List => {
-            let names: Vec<String> = s.store.list_secrets()
+            let names: Vec<String> = s
+                .store
+                .list_secrets()
                 .iter()
                 .map(|s| s.name.clone())
                 .collect();
@@ -324,7 +328,7 @@ fn process_request(request: AgentRequest, state: &Arc<Mutex<AgentState>>) -> Age
                 data: serde_json::to_value(names).unwrap_or_default(),
             }
         }
-        
+
         AgentRequest::Shutdown => {
             s.should_stop = true;
             AgentResponse::Ok {
@@ -343,65 +347,58 @@ impl AgentClient {
         let socket_path = get_socket_path()?;
         let mut stream = UnixStream::connect(&socket_path)
             .map_err(|_| anyhow::anyhow!("Agent not started. Run lazy-locker first."))?;
-        
+
         let request = r#"{"action":"get_secrets"}"#;
         writeln!(stream, "{}", request)?;
         stream.flush()?;
-        
+
         let mut reader = BufReader::new(&stream);
         let mut response = String::new();
         reader.read_line(&mut response)?;
-        
+
         let resp: AgentResponse = serde_json::from_str(&response)?;
         match resp {
-            AgentResponse::Ok { data } => {
-                Ok(serde_json::from_value(data)?)
-            }
-            AgentResponse::Error { message } => {
-                Err(anyhow::anyhow!("{}", message))
-            }
+            AgentResponse::Ok { data } => Ok(serde_json::from_value(data)?),
+            AgentResponse::Error { message } => Err(anyhow::anyhow!("{}", message)),
         }
     }
-    
+
     /// Retrieves a specific secret
+    #[allow(dead_code)]
     pub fn get_secret(name: &str) -> Result<String> {
         let socket_path = get_socket_path()?;
         let mut stream = UnixStream::connect(&socket_path)
             .map_err(|_| anyhow::anyhow!("Agent not started. Run lazy-locker first."))?;
-        
+
         let request = serde_json::json!({"action": "get_secret", "name": name});
         writeln!(stream, "{}", request)?;
         stream.flush()?;
-        
+
         let mut reader = BufReader::new(&stream);
         let mut response = String::new();
         reader.read_line(&mut response)?;
-        
+
         let resp: AgentResponse = serde_json::from_str(&response)?;
         match resp {
-            AgentResponse::Ok { data } => {
-                Ok(data["value"].as_str().unwrap_or("").to_string())
-            }
-            AgentResponse::Error { message } => {
-                Err(anyhow::anyhow!("{}", message))
-            }
+            AgentResponse::Ok { data } => Ok(data["value"].as_str().unwrap_or("").to_string()),
+            AgentResponse::Error { message } => Err(anyhow::anyhow!("{}", message)),
         }
     }
-    
+
     /// Checks agent status
     pub fn status() -> Result<serde_json::Value> {
         let socket_path = get_socket_path()?;
-        let mut stream = UnixStream::connect(&socket_path)
-            .map_err(|_| anyhow::anyhow!("Agent not started"))?;
-        
+        let mut stream =
+            UnixStream::connect(&socket_path).map_err(|_| anyhow::anyhow!("Agent not started"))?;
+
         let request = r#"{"action":"ping"}"#;
         writeln!(stream, "{}", request)?;
         stream.flush()?;
-        
+
         let mut reader = BufReader::new(&stream);
         let mut response = String::new();
         reader.read_line(&mut response)?;
-        
+
         let resp: AgentResponse = serde_json::from_str(&response)?;
         match resp {
             AgentResponse::Ok { data } => Ok(data),

@@ -1,11 +1,14 @@
-use std::io::{stdout, Stdout};
 use anyhow::Result;
 use crossterm::{
-    event::{DisableMouseCapture, EnableMouseCapture, KeyboardEnhancementFlags, PushKeyboardEnhancementFlags, PopKeyboardEnhancementFlags},
+    event::{
+        DisableMouseCapture, EnableMouseCapture, KeyboardEnhancementFlags,
+        PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+    },
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use ratatui::{backend::CrosstermBackend, Terminal};
+use ratatui::{Terminal, backend::CrosstermBackend};
+use std::io::{Stdout, stdout};
 
 pub type Tui = Terminal<CrosstermBackend<Stdout>>;
 
@@ -13,7 +16,7 @@ pub type Tui = Terminal<CrosstermBackend<Stdout>>;
 pub fn init() -> Result<Tui> {
     enable_raw_mode()?;
     let mut stdout = stdout();
-    
+
     // Try to enable keyboard enhancement for better compatibility
     // This is optional and may fail on some terminals
     let _ = execute!(
@@ -22,10 +25,10 @@ pub fn init() -> Result<Tui> {
         EnableMouseCapture,
         PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
     );
-    
+
     // Fallback if keyboard enhancement failed
     execute!(stdout, EnterAlternateScreen)?;
-    
+
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
     terminal.hide_cursor()?;
