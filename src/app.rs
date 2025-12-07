@@ -1,7 +1,8 @@
+use crate::core::config::Config;
 use crate::core::store::SecretsStore;
 use std::collections::HashMap;
 use std::path::Path;
-use token_analyzer::{AnalysisReport, AnalyzerConfig, TokenSecurityAnalyzer};
+use token_analyzer::{AnalysisReport, TokenSecurityAnalyzer};
 use zeroize::Zeroize;
 
 /// Main application mode (single main view with overlaid modals)
@@ -63,6 +64,8 @@ pub struct App {
     pub revealed_secret: Option<String>,
     // Analysis report for the selected token
     pub token_analysis: Option<AnalysisReport>,
+    // Reason why analysis was skipped (if any)
+    pub analysis_skipped_reason: Option<String>,
     // Temporary status message
     pub status_message: Option<String>,
     // Agent mode: if true, secrets are decrypted via agent
@@ -73,10 +76,15 @@ pub struct App {
     pub command_input: String,
     // Selected command suggestion index
     pub command_suggestion_index: usize,
+    // User configuration for analyzer settings
+    pub config: Config,
 }
 
 impl App {
     pub fn new() -> Self {
+        let config = Config::get_locker_dir()
+            .and_then(|dir| Config::load(&dir))
+            .unwrap_or_default();
         Self {
             should_quit: false,
             initialized: false,
@@ -92,11 +100,13 @@ impl App {
             selected_index: 0,
             revealed_secret: None,
             token_analysis: None,
+            analysis_skipped_reason: None,
             status_message: None,
             agent_mode: false,
             agent_secrets: None,
             command_input: String::new(),
             command_suggestion_index: 0,
+            config,
         }
     }
 
@@ -385,9 +395,29 @@ impl App {
     }
 
     /// Updates the token analysis for the selected secret using the new analyzer
+    /// Skips analysis based on user configuration (depth, skip_paths, etc.)
     pub fn update_token_usages(&mut self, work_dir: &Path) {
+        // Check if analysis should run based on config
+        if !self.config.analyzer.should_analyze(work_dir) {
+            self.token_analysis = None;
+            self.analysis_skipped_reason = Some(format!(
+                "Scan disabled for this directory.\n\
+                 Path depth: {} (minimum: {})\n\n\
+                 Use token-analyzer CLI for manual scan:\n\
+                 cargo install token-analyzer\n\
+                 token-analyzer <TOKEN_NAME> .",
+                work_dir.components().count(),
+                self.config.analyzer.min_path_depth
+            ));
+            return;
+        }
+
+        // Clear skip reason when analysis runs
+        self.analysis_skipped_reason = None;
+
         if let Some(name) = self.get_selected_secret_name() {
-            let analyzer = TokenSecurityAnalyzer::new(AnalyzerConfig::fast());
+            let analyzer_config = self.config.analyzer.to_analyzer_config();
+            let analyzer = TokenSecurityAnalyzer::new(analyzer_config);
             match analyzer.analyze(&name, work_dir) {
                 Ok(report) => {
                     self.token_analysis = Some(report);

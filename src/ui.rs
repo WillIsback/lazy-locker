@@ -259,11 +259,13 @@ fn render_token_usages(app: &App, area: Rect, frame: &mut Frame) {
     let report = match &app.token_analysis {
         Some(r) if !r.files.is_empty() => r,
         _ => {
-            // No analysis or no results
-            let msg = if app.get_selected_secret_name().is_some() {
-                "No usage found\nin the current directory."
+            // Check if analysis was skipped due to config
+            let msg = if let Some(reason) = &app.analysis_skipped_reason {
+                reason.clone()
+            } else if app.get_selected_secret_name().is_some() {
+                "No usage found\nin the current directory.".to_string()
             } else {
-                "Select a secret\nto see its usages."
+                "Select a secret\nto see its usages.".to_string()
             };
             let paragraph = Paragraph::new(msg)
                 .style(Style::default().fg(theme::COMMENT))
