@@ -1,6 +1,6 @@
 {
   "name": "lazy-locker",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "description": "JavaScript/TypeScript SDK for lazy-locker - A secure local secrets manager",
   "main": "dist/index.js",
   "module": "dist/index.mjs",

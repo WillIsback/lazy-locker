@@ -1,6 +1,6 @@
 [package]
 name = "lazy-locker"
-version = "0.0.6"
+version = "0.0.7"
 edition = "2024"
 authors = ["William Derue <william.derue@gmail.com>"]
 description = "A secure local secrets manager with TUI interface and SDK support"

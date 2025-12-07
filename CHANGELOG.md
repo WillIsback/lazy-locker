@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.7] - 2024-12-07
+
+### Added
+- **Configuration module** (`src/core/config.rs`): User-configurable analyzer settings via `~/.config/.lazy-locker/config.toml`
+  - `enabled`: Toggle automatic analysis on/off
+  - `timeout_ms`: Maximum analysis time (default: 500ms)
+  - `max_files`: Maximum files to scan (default: 1000)
+  - `min_path_depth`: Minimum directory depth for analysis (default: 4)
+  - `ignore_dirs`: Directories to skip (node_modules, .venv, target, etc.)
+  - `skip_paths`: Full paths to exclude from analysis
+  - Default config file created automatically on first run with documentation
+
+- **Informative message when scan is disabled**: The usage panel now displays why analysis was skipped and suggests using `token-analyzer` CLI directly
+
+### Changed
+- Token analyzer now uses external `token-analyzer = "0.0.1"` crate from crates.io
+- Analysis respects user configuration instead of hardcoded directory checks
+- Replaced manual `is_large_directory()` check with config-based `should_analyze()`
+
+### Dependencies
+- Added `toml = "0.9.8"` for configuration file parsing
+- Using `token-analyzer = "0.0.1"` as external dependency
+
+### Fixed
+- Performance issue when running from `$HOME` or shallow directories
+- Clippy warnings (derivable_impls, collapsible_if, field_reassign_with_default)
+
 ## [0.0.6] - 2024-12-07
 
 ### Changed
